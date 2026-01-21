@@ -1,0 +1,80 @@
+---
+alwaysApply: true
+---
+
+## Réutilisation maximale des composants & logique
+
+- **Objectif principal**: toujours **réutiliser** au maximum les composants et fonctions existants, et **minimiser** la création de nouveaux composants.
+
+### Principes de base
+
+- **Chercher avant de créer**:
+  - Avant de créer un composant:
+    - Parcourir `src/app/(dashboard)` et `src/app/(auth)` pour repérer un bloc similaire.
+    - Vérifier s’il existe déjà un pattern proche (cards, listes, boutons, modales).
+  - Si un bloc est très proche:
+    - Le factoriser / paramétrer au lieu de repartir de zéro.
+
+- **Nouveaux composants: critères**:
+  - Créer un nouveau composant **uniquement si**:
+    - Il sera utilisé dans **au moins 2 endroits** (actuels ou prévus), ou
+    - Il encapsule une logique suffisamment complexe pour mériter d’être isolée.
+  - Sinon, il peut rester un bloc JSX local à la page.
+
+### Où placer les composants réutilisables
+
+- **Convention de structure**:
+  - Composants purement UI et génériques:
+    - `src/app/components` (dossier à créer/enrichir si besoin).
+  - Composants “layout” de pages de dashboard:
+    - Garder `DashboardLayout` dans `src/app/(dashboard)/layout.tsx`.
+  - Logique métier / helpers:
+    - `src/lib` (auth, interwallet, fraude, prisma, formatage, status, etc.).
+
+### Patterns spécifiques à réutiliser
+
+- **Layouts de page dashboard**:
+  - Réutiliser la structure:
+    - Conteneur: `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8`.
+    - Titre: `text-2xl font-bold text-gray-900`.
+    - Sections: `space-y-6`.
+
+- **Sections de type “liste d’éléments”**:
+  - Inspirer les listes de transactions récentes:
+    - `divide-y divide-gray-100` pour les séparateurs.
+    - Ligne: `p-4 flex items-center justify-between`.
+    - Icône dans cercle: `w-10 h-10 rounded-full flex items-center justify-center bg-...`.
+
+- **Cartes de wallet**:
+  - Le pattern de cards colorées dans `/wallets` (dégradés + info de solde) doit servir de référence:
+    - Si on affiche d’autres entités similaires (cartes, comptes externes, etc.), repartir de ce style.
+
+- **Modales**:
+  - Toute nouvelle modale doit:
+    - Réutiliser l’overlay et le conteneur de la modale “Créer un wallet”.
+    - Partager la même structure de bouton “Annuler / Confirmer”.
+
+### Réutilisation de logique
+
+- **Formatage de montants**:
+  - Réutiliser/extraire la fonction `formatCurrency` existante (présente dans dashboard et wallets).
+  - Si utilisée à plusieurs endroits:
+    - L’extraire dans `src/lib` (par ex. `src/lib/format.ts`) et y référencer partout.
+
+- **Couleurs de statut**:
+  - Réutiliser la logique `getStatusColor` des transactions dashboard.
+  - Si d’autres pages ont besoin de ce mapping:
+    - Extraire la fonction dans `src/lib` au lieu de la dupliquer.
+
+- **Appels API**:
+  - Aligner les fetchs sur les endpoints déjà définis dans `README.md` et `src/app/api`.
+  - Ne pas dupliquer la logique d’auth ou de gestion d’erreurs si une fonction utilitaire existe déjà.
+
+### Philosophie
+
+- **Moins mais mieux**:
+  - Préférer **quelques composants bien pensés** à une multitude de petites variantes.
+  - Garder une hiérarchie claire:
+    - Layouts → sections → blocs UI → éléments (boutons, tags, inputs).
+  - Toujours privilégier la **cohérence visuelle** et la **simplicité** du code.
+

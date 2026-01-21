@@ -1,0 +1,66 @@
+---
+alwaysApply: true
+---
+
+## `package.json`, dépendances & scripts
+
+- **Objectif principal**: toujours s’aligner sur les dépendances et scripts déjà définis dans `package.json` de `epitech-wallet`.
+
+### Lecture systématique du `package.json`
+
+- **Avant de proposer des scripts ou d’installer une lib**:
+  - Lire `package.json` et vérifier:
+    - Les **scripts existants** (`dev`, `build`, `start`, `seed`, `db:*`).
+    - Les **dépendances déjà présentes**.
+  - Ne pas proposer de scripts qui dupliquent ou contredisent ceux existants.
+
+### Scripts existants à respecter
+
+- **Scripts principaux**:
+  - `"dev": "next dev --turbopack"`
+  - `"build": "next build"`
+  - `"start": "next start"`
+  - `"lint": "eslint"`
+  - `"seed": "bun prisma/seed.ts"`
+
+- **Scripts DB / Prisma**:
+  - `"db:push": "bunx prisma db push"`
+  - `"db:generate": "bunx prisma generate"`
+  - `"db:studio": "bunx prisma studio"`
+  - `"db:reset": "bunx prisma db push --force-reset && bun run seed"`
+
+- **Règle**:
+  - Quand on documente des commandes dans des snippets:
+    - Utiliser **exactement** ces scripts (e.g. `bun run db:push`).
+
+### Dépendances & versions
+
+- **Dépendances runtime actuelles**:
+  - `next`: `16.1.4`
+  - `react`: `19.2.3`
+  - `react-dom`: `19.2.3`
+  - `@prisma/client` & `prisma`: `5.22.0`
+  - `bcryptjs`, `jsonwebtoken`, `dotenv`, `zod`
+
+- **DevDependencies**:
+  - `eslint` v9 + `eslint-config-next` 16
+  - `tailwindcss` v4 + `@tailwindcss/postcss`
+  - `typescript` v5
+  - Types React/Node alignés sur les versions ci-dessus.
+
+- **Règle d’ajout de dépendance**:
+  - Éviter au maximum d’ajouter de nouvelles libs.
+  - Avant de proposer une nouvelle lib, vérifier:
+    - Si les besoins peuvent être couverts par le stack actuel (Next/React/Zod/Prisma).
+  - Si vraiment nécessaire:
+    - Privilégier les libs légères, compatibles avec React 19 / Next 16.
+
+### Trusted & ignored dependencies
+
+- Le `package.json` définit:
+  - `"ignoreScripts": ["sharp", "unrs-resolver"]`
+  - `"trustedDependencies": ["sharp", "unrs-resolver"]`
+  - Ne pas modifier cette configuration sans raison très forte.
+  - Si on documente un setup de build d’images:
+    - Mentionner que `sharp` est déjà considéré dans la config de confiance.
+

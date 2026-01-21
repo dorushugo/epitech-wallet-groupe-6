@@ -1,0 +1,84 @@
+---
+alwaysApply: true
+---
+
+## DRY & Factorisation dans `epitech-wallet`
+
+- **Objectif principal**: éviter la duplication de logique et de UI, surtout entre pages du dashboard (`/dashboard`, `/wallets`, `/transactions`, `/inter-wallet`) et entre API routes.
+
+### Règles générales
+
+- **Toujours chercher un existant avant de créer**:
+  - Avant d’écrire un nouveau composant ou une nouvelle fonction:
+    - **Scanner** `src/app/(dashboard)`, `src/app/(auth)` et `src/app/components` (s’il existe) pour un composant similaire.
+    - **Scanner** `src/lib` pour de la logique métier (auth, interwallet, fraude, Prisma).
+  - Si un composant/logique ressemble à **70%** à ce dont on a besoin, **adapter l’existant** plutôt que recréer.
+
+- **Préférer les helpers/abstractions ciblées**:
+  - Extraire les patterns récurrents dans:
+    - **UI**: cartes, modales, boutons “primaire/secondaire”, badges de statut, skeletons.
+    - **Logique**: appels API, formatage de montants, gestion d’état de chargement.
+  - Créer des helpers **cohérents** avec les noms existants:
+    - Exemple: le formatage d’argent suit déjà `formatCurrency` dans les pages dashboard/wallets → réutiliser/extraire au besoin.
+
+### UI & composants React
+
+- **Cartes / Layouts de dashboard**:
+  - Les pages utilisent déjà:
+    - Des **cards arrondies** (`rounded-xl`/`rounded-2xl`, `shadow-sm`/`shadow-md`).
+    - Des **grilles** (`grid grid-cols-...`) pour les actions rapides / wallets.
+  - Si un nouveau bloc suit ce style, créer un composant générique **uniquement si**:
+    - Il est utilisé **au moins à 2 endroits**, ou
+    - Il est clairement réutilisable pour une autre feature planifiée.
+
+- **Boutons & liens d’action**:
+  - Garder le style des boutons existants:
+    - Primaire: `bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition`
+    - Secondaire: `bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition`
+  - Si plusieurs nouveaux boutons reprennent ces classes, créer:
+    - Soit un composant `Button` minimal en suivant ce style.
+    - Soit une **fonction utilitaire de classes** (par ex. `getButtonClasses(variant)`).
+
+- **Modales & overlays**:
+  - Reprendre le pattern de la modale de création de wallet:
+    - `fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4`
+    - Contenu: `bg-white rounded-2xl p-6 max-w-md w-full`
+  - Pour toute nouvelle modale, **copier ce pattern** et, si plusieurs modales apparaissent:
+    - Factoriser en un composant `Modal` réutilisable.
+
+- **Badges de statut / tags**:
+  - Réutiliser la logique `getStatusColor` de la page dashboard pour les transactions (PENDING, SUCCESS, BLOCKED, etc.).
+  - Si un autre écran a besoin de tags de statut, **extraire**:
+    - Une fonction partagée dans `src/lib` (par ex. `getStatusColor`).
+    - Éventuellement un composant `StatusBadge`.
+
+### Logique métier & API
+
+- **Prisma / accès base de données**:
+  - **Toujours utiliser** le client Prisma centralisé (`src/lib/prisma.ts`).
+  - Ne jamais instancier un nouveau `PrismaClient` dans une route ou un composant.
+
+- **Auth & sessions**:
+  - **Réutiliser** les fonctions d’`auth.ts` pour:
+    - Décoder/valider les tokens.
+    - Gérer les sessions.
+  - Ne pas réimplémenter la logique JWT ou bcrypt dans les API routes.
+
+- **Protocole inter-wallet & fraude**:
+  - Pour tout ce qui touche au HMAC, signatures, logs, scoring de fraude:
+    - **Réutiliser** `src/lib/interwallet.ts` et `src/lib/fraud.ts`.
+  - Si une nouvelle règle de fraude ou un nouveau flux inter-wallet apparaît:
+    - Étendre ces fichiers plutôt que de recréer des helpers ailleurs.
+
+### Organisation & fichiers partagés
+
+- **Où mettre quoi**:
+  - `src/lib`: logique métier, helpers transverses (formatage, statut, calculs).
+  - `src/app/components` (à créer/compléter si besoin): composants UI réutilisables.
+  - `src/app/(dashboard)`: pages orientées écran, qui consomment la logique/UI déjà factorisée.
+
+- **Naming & cohérence**:
+  - Donner des noms simples et expressifs:
+    - `formatCurrency`, `getStatusColor`, `DashboardLayout`, `WalletCard`, etc.
+  - Garder la convention anglaise pour les noms de types/fonctions/composants, français pour le texte UI.
+

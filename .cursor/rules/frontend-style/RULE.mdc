@@ -1,0 +1,93 @@
+---
+alwaysApply: true
+---
+
+## Style Frontend & UX dans `epitech-wallet`
+
+- **Objectif principal**: garder un **style homogène** avec les pages existantes (home, dashboard, wallets, transactions, inter-wallet), en privilégiant une UI clean, moderne, centrée sur la lisibilité.
+
+### Design global
+
+- **Couleurs & ambiance**:
+  - Fond global:
+    - `body` → `bg-gray-50 min-h-screen` (déjà défini dans `src/app/layout.tsx`).
+  - Accent principal:
+    - Bleu → `bg-blue-600`, `from-blue-600 to-indigo-600`, `text-blue-600` pour les liens/action.
+  - Ne pas introduire de palette complètement différente sans raison (rester dans les tons bleus / gris + quelques dégradés colorés pour les cartes).
+
+- **Typographie**:
+  - Police système définie dans `globals.css`:
+    - `system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`
+  - Titres:
+    - Utiliser `text-2xl font-bold` pour les titres de page (`h1`).
+    - Sous-titres en `text-lg font-semibold` ou `text-sm font-semibold`.
+
+### Layouts & navigation
+
+- **Root layout**:
+  - Toujours envelopper le contenu dans le `RootLayout` et, pour les pages du dashboard, dans `DashboardLayout` (`src/app/(dashboard)/layout.tsx`).
+  - Ne pas réinventer un nouveau layout global: s’appuyer sur le header existant avec logo “W” et nav.
+
+- **Navigation dashboard**:
+  - Réutiliser `navItems` pour ajouter des liens:
+    - `{ href: '/nouvelle-page', label: 'Titre', icon: '🆕' }`
+  - Respecter le style existant:
+    - Desktop: `px-3 py-2 rounded-lg text-sm font-medium transition ...`
+    - Mobile: `px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap ...`
+
+### Composants visuels
+
+- **Cards et sections**:
+  - Utiliser des cards:
+    - `bg-white rounded-xl shadow-sm` pour les blocs classiques.
+    - `bg-gradient-to-r ... rounded-2xl p-6 text-white` pour les blocs “hero/stat”.
+  - Marges internes:
+    - `p-4` ou `p-6` pour les cartes.
+    - `py-8` pour le `main` du dashboard (`max-w-7xl mx-auto ...`).
+
+- **Boutons**:
+  - **Primaire** (action importante):
+    - `px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition`
+  - **Secondaire**:
+    - `px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition`
+  - **Danger/alerte** (si besoin):
+    - S’inspirer des badges rouges (transactions BLOCKED/FAILED) mais garder un style simple:
+      - `bg-red-600 text-white hover:bg-red-700` (avec les mêmes arrondis et transitions).
+
+- **Inputs & formulaires**:
+  - Réutiliser le style des inputs de la modale `Créer un wallet`:
+    - `w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500`
+  - Labels:
+    - `block text-sm font-medium text-gray-700 mb-1`
+  - Messages d’erreur:
+    - `p-3 bg-red-50 text-red-600 text-sm rounded-lg`
+
+- **Modales**:
+  - Overlay:
+    - `fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4`
+  - Contenu:
+    - `bg-white rounded-2xl p-6 max-w-md w-full`
+
+- **Skeletons & chargement**:
+  - Reprendre les patterns:
+    - `animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600` (loader full-screen).
+    - `animate-pulse` avec `bg-gray-200 rounded-xl` pour les skeletons de cartes/listes.
+
+### UX & micro-détails
+
+- **Langue & tonalité**:
+  - Texte UI en **français**, concis, orienté usage:
+    - “Envoyer”, “Créer un wallet”, “Transactions récentes”, “Aucune transaction”.
+  - Garder le même ton: pédagogique mais simple.
+
+- **Émojis & icônes**:
+  - S’aligner sur ce qui existe déjà:
+    - 💸 pour transferts, 💰 pour wallets, 🌐 pour inter-wallet, 📋 pour historique.
+  - Pour de nouveaux écrans, utiliser 1 émoji cohérent au même format (taille `text-2xl`).
+
+- **Responsive**:
+  - Reprendre les patterns:
+    - `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3` pour les grilles.
+    - Nav mobile séparée (`md:hidden`) vs nav desktop (`hidden md:flex`).
+  - S’assurer que les nouveaux blocs respectent cette approche.
+

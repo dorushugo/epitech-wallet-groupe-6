@@ -1,0 +1,89 @@
+---
+alwaysApply: true
+---
+
+## Bun, Bunx & Docker dans `epitech-wallet`
+
+- **Objectif principal**: standardiser comment on installe, lance et manipule la DB, toujours en utilisant **Bun** + **Docker Compose** comme décrit dans le `README.md` et `package.json`.
+
+### Installation & scripts de base
+
+- **Installation des dépendances**:
+  - Toujours utiliser:
+    - `bun install`
+  - Ne pas documenter ni utiliser `npm install` / `yarn` dans les instructions générées.
+
+- **Scripts applicatifs** (doivent correspondre au `package.json`):
+  - Dev: `bun run dev` (utilise `next dev --turbopack`)
+  - Build: `bun run build`
+  - Start: `bun run start`
+  - Seed: `bun run seed` (exécute `bun prisma/seed.ts`)
+
+- **Scripts Prisma** (à réutiliser tels quels):
+  - `bun run db:push` → `bunx prisma db push`
+  - `bun run db:generate` → `bunx prisma generate`
+  - `bun run db:studio` → `bunx prisma studio`
+  - `bun run db:reset` → `bunx prisma db push --force-reset && bun run seed`
+
+### Utilisation de `bunx`
+
+- **Règle générale**:
+  - Pour tous les outils CLI Node (Prisma, etc.), utiliser **`bunx`** et **pas** `npx`.
+  - Exemple:
+    - ✅ `bunx prisma db push`
+    - ❌ `npx prisma db push`
+
+- **Nouvelles commandes CLI**:
+  - Si tu ajoutes une nouvelle utilisation d’un binaire JS:
+    - Préférer `bunx <tool>` dans les scripts.
+    - Garder la même convention de nommage (`db:*`, `seed`, etc.).
+
+### Docker & base de données
+
+- **Stack Docker standard**:
+  - La base PostgreSQL est gérée par `docker-compose.yml`:
+    - Service: `postgres`
+    - Image: `postgres:16-alpine`
+    - Port exposé: `5432:5432`
+    - Credentials par défaut:
+      - `POSTGRES_USER: wallet_user`
+      - `POSTGRES_PASSWORD: wallet_password`
+      - `POSTGRES_DB: wallet_db`
+
+- **Commandes Docker recommandées**:
+  - Démarrer la base:
+    - `docker-compose up -d`
+  - Arrêter:
+    - `docker-compose down`
+  - Réinitialiser (optionnel, prudence):
+    - `docker-compose down -v` (supprime aussi le volume `postgres_data`)
+    - puis `docker-compose up -d`
+
+- **Synchronisation Prisma ↔ DB**:
+  - Après modification du `schema.prisma`:
+    - Démarrer la DB (`docker-compose up -d`).
+    - Lancer `bun run db:generate` puis `bun run db:push`.
+
+### Seed & données de démo
+
+- **Utilisation du seed existant**:
+  - Réutiliser `prisma/seed.ts` comme point central de seed.
+  - Pour toute nouvelle donnée de démo (utilisateurs, wallets, règles de fraude):
+    - Étendre **ce fichier** au lieu de créer d’autres scripts de seed.
+
+- **Conventions de seed**:
+  - Conserver les patterns actuels:
+    - Utiliser `bcrypt` pour hasher les mots de passe.
+    - Créer au moins un wallet principal pour chaque utilisateur.
+    - Ajouter les nouvelles **fraud rules** ou règles métier dans les blocs déjà prévus.
+
+### Documentation & snippets générés
+
+- **Dans les README / commentaires / réponses générées**:
+  - Toujours montrer les exemples avec **Bun**:
+    - `bun install`
+    - `bun run dev`
+    - `bunx prisma ...`
+  - Quand un snippet nécessite la DB:
+    - Rappeler `docker-compose up -d` si c’est pertinent.
+
