@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 interface Wallet {
@@ -51,11 +51,7 @@ export default function TransactionsPage() {
   const [sendError, setSendError] = useState('')
   const [sendSuccess, setSendSuccess] = useState('')
 
-  useEffect(() => {
-    fetchData()
-  }, [filters])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams()
       queryParams.set('limit', '50')
@@ -83,7 +79,11 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filters, sendForm.sourceWalletId])
+
+  useEffect(() => {
+    fetchData()
+  }, [filters, fetchData])
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -292,7 +292,7 @@ export default function TransactionsPage() {
       {showSendModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Envoyer de l'argent</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Envoyer de l&apos;argent</h2>
 
             <form onSubmit={handleSend} className="space-y-4">
               <div>

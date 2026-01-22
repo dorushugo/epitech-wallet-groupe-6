@@ -141,7 +141,6 @@ export default function DepositPage() {
     return amount.toLocaleString('fr-FR', { style: 'currency', currency })
   }
 
-  const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
   const depositAmount = typeof amount === 'number' ? amount : parseFloat(amount as string) || 0
   const fees = depositAmount > 0 ? calculateFees(depositAmount) : 0
   const platformFee = depositAmount > 0 ? calculatePlatformFee(depositAmount) : 0

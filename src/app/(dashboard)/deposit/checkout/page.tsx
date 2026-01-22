@@ -10,42 +10,46 @@ export default function CheckoutReturnPage() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    const paymentIntent = searchParams.get('payment_intent')
     const sessionId = searchParams.get('payment_intent') // Pour Checkout Session, c'est le session_id
     const redirectStatus = searchParams.get('redirect_status')
 
-    if (redirectStatus === 'succeeded') {
-      setStatus('success')
-      setMessage('Paiement réussi ! Votre wallet sera crédité sous peu.')
-      // Rediriger vers /wallets après 3 secondes
-      setTimeout(() => {
-        router.push('/wallets')
-      }, 3000)
-    } else if (redirectStatus === 'canceled' || redirectStatus === 'failed') {
-      setStatus('error')
-      setMessage(
-        redirectStatus === 'canceled'
-          ? 'Paiement annulé. Vous pouvez réessayer.'
-          : 'Le paiement a échoué. Veuillez réessayer.'
-      )
-    } else {
-      // Si pas de redirect_status, vérifier si on a un session_id (format Checkout Session)
-      if (sessionId) {
-        setStatus('loading')
-        setMessage('Vérification du statut du paiement...')
-        // Le webhook devrait traiter le paiement, on attend un peu
+    // Utiliser setTimeout pour rendre les appels setState asynchrones
+    const timeoutId = setTimeout(() => {
+      if (redirectStatus === 'succeeded') {
+        setStatus('success')
+        setMessage('Paiement réussi ! Votre wallet sera crédité sous peu.')
+        // Rediriger vers /wallets après 3 secondes
         setTimeout(() => {
-          setStatus('success')
-          setMessage('Paiement en cours de traitement.')
-          setTimeout(() => {
-            router.push('/wallets')
-          }, 2000)
-        }, 2000)
-      } else {
+          router.push('/wallets')
+        }, 3000)
+      } else if (redirectStatus === 'canceled' || redirectStatus === 'failed') {
         setStatus('error')
-        setMessage('Statut de paiement inconnu.')
+        setMessage(
+          redirectStatus === 'canceled'
+            ? 'Paiement annulé. Vous pouvez réessayer.'
+            : 'Le paiement a échoué. Veuillez réessayer.'
+        )
+      } else {
+        // Si pas de redirect_status, vérifier si on a un session_id (format Checkout Session)
+        if (sessionId) {
+          setStatus('loading')
+          setMessage('Vérification du statut du paiement...')
+          // Le webhook devrait traiter le paiement, on attend un peu
+          setTimeout(() => {
+            setStatus('success')
+            setMessage('Paiement en cours de traitement.')
+            setTimeout(() => {
+              router.push('/wallets')
+            }, 2000)
+          }, 2000)
+        } else {
+          setStatus('error')
+          setMessage('Statut de paiement inconnu.')
+        }
       }
-    }
+    }, 0)
+
+    return () => clearTimeout(timeoutId)
   }, [searchParams, router])
 
   return (

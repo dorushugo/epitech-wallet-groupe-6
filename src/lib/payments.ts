@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { stripe, STRIPE_CURRENCY } from './stripe'
+import { stripe } from './stripe'
 import { checkFraud } from './fraud'
 import { calculatePlatformFee, getPlatformWallet } from './platform-fee'
 import { Decimal } from '@prisma/client/runtime/library'

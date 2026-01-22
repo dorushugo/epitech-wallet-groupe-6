@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
-  verifySignature,
   generateSignature,
   validateIncomingTransfer,
   processIncomingTransfer,
@@ -12,7 +11,6 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const signature = request.headers.get('X-Signature')
-    const sourceSystem = request.headers.get('X-Source-System')
 
     if (!signature) {
       return NextResponse.json(

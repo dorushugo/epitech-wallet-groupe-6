@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 interface Wallet {
@@ -20,6 +20,14 @@ interface Payout {
   createdAt: string
 }
 
+interface Transaction {
+  id: string
+  amount: number
+  currency: string
+  status: string
+  createdAt: string
+}
+
 export default function CashoutPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -35,25 +43,32 @@ export default function CashoutPage() {
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    fetchWallets()
-  }, [])
-
-  useEffect(() => {
-    if (selectedWalletId) {
-      fetchPayouts()
+  const fetchPayouts = useCallback(async () => {
+    try {
+      const queryParams = new URLSearchParams()
+      queryParams.set('type', 'WITHDRAWAL')
+      if (selectedWalletId) {
+        queryParams.set('walletId', selectedWalletId)
+      }
+      const res = await fetch(`/api/transactions?${queryParams.toString()}`)
+      const data = await res.json()
+      if (data.success) {
+        // Convertir les transactions en format payout pour l'affichage
+        const payoutsData = data.transactions.map((tx: Transaction) => ({
+          id: tx.id,
+          amount: tx.amount,
+          currency: tx.currency,
+          method: 'bank_transfer', // Par défaut
+          status: tx.status === 'SUCCESS' ? 'paid' : tx.status === 'FAILED' ? 'failed' : 'pending',
+          destination: '****', // Masqué pour la sécurité
+          createdAt: tx.createdAt,
+        }))
+        setPayouts(payoutsData)
+      }
+    } catch (error) {
+      console.error('Failed to fetch payouts:', error)
     }
   }, [selectedWalletId])
-
-  useEffect(() => {
-    const walletIdParam = searchParams.get('walletId')
-    if (walletIdParam && wallets.length > 0) {
-      const walletExists = wallets.find((w) => w.id === walletIdParam)
-      if (walletExists) {
-        setSelectedWalletId(walletIdParam)
-      }
-    }
-  }, [searchParams, wallets])
 
   const fetchWallets = async () => {
     try {
@@ -70,34 +85,27 @@ export default function CashoutPage() {
     }
   }
 
-  const fetchPayouts = async () => {
-    try {
-      const queryParams = new URLSearchParams()
-      queryParams.set('type', 'WITHDRAWAL')
-      if (selectedWalletId) {
-        queryParams.set('walletId', selectedWalletId)
-      }
-      const res = await fetch(`/api/transactions?${queryParams.toString()}`)
-      const data = await res.json()
-      if (data.success) {
-        // Convertir les transactions en format payout pour l'affichage
-        const payoutsData = data.transactions.map((tx: any) => ({
-          id: tx.id,
-          amount: tx.amount,
-          currency: tx.currency,
-          method: 'bank_transfer', // Par défaut
-          status: tx.status === 'SUCCESS' ? 'paid' : tx.status === 'FAILED' ? 'failed' : 'pending',
-          destination: '****', // Masqué pour la sécurité
-          createdAt: tx.createdAt,
-        }))
-        setPayouts(payoutsData)
-      }
-    } catch (error) {
-      console.error('Failed to fetch payouts:', error)
-    }
-  }
+  useEffect(() => {
+    fetchWallets()
+  }, [])
 
-  const calculateFees = (amount: number): number => {
+  useEffect(() => {
+    if (selectedWalletId) {
+      fetchPayouts()
+    }
+  }, [selectedWalletId, fetchPayouts])
+
+  useEffect(() => {
+    const walletIdParam = searchParams.get('walletId')
+    if (walletIdParam && wallets.length > 0) {
+      const walletExists = wallets.find((w) => w.id === walletIdParam)
+      if (walletExists) {
+        setSelectedWalletId(walletIdParam)
+      }
+    }
+  }, [searchParams, wallets])
+
+  const calculateFees = (): number => {
     // Frais de cashout: 0.25€ pour virement bancaire
     if (method === 'bank_transfer') {
       return 0.25
@@ -237,7 +245,7 @@ export default function CashoutPage() {
 
   const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
   const cashoutAmount = typeof amount === 'number' ? amount : parseFloat(amount as string) || 0
-  const fees = cashoutAmount > 0 ? calculateFees(cashoutAmount) : 0
+  const fees = cashoutAmount > 0 ? calculateFees() : 0
   const platformFee = cashoutAmount > 0 ? calculatePlatformFee(cashoutAmount) : 0
   const totalDebit = cashoutAmount + platformFee // Montant total débité du wallet
   const netAmount = cashoutAmount - fees // Montant reçu par l'utilisateur (après frais Stripe)
@@ -272,7 +280,7 @@ export default function CashoutPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Retirer des fonds</h1>
-        <p className="text-gray-500 mt-1">Retirez de l'argent de votre wallet</p>
+        <p className="text-gray-500 mt-1">Retirez de l&apos;argent de votre wallet</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

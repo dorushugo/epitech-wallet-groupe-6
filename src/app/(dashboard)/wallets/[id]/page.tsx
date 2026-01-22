@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, CreditCard, Banknote } from 'lucide-react'
@@ -34,17 +34,8 @@ export default function WalletDetailPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
-  const [showDepositModal, setShowDepositModal] = useState(false)
-  const [showCashoutModal, setShowCashoutModal] = useState(false)
 
-  useEffect(() => {
-    if (walletId) {
-      fetchWallet()
-      fetchTransactions()
-    }
-  }, [walletId])
-
-  const fetchWallet = async () => {
+  const fetchWallet = useCallback(async () => {
     try {
       const res = await fetch('/api/wallets')
       const data = await res.json()
@@ -62,9 +53,9 @@ export default function WalletDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [walletId, router])
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
       const res = await fetch(`/api/transactions?walletId=${walletId}&limit=10`)
       const data = await res.json()
@@ -74,7 +65,14 @@ export default function WalletDetailPage() {
     } catch (error) {
       console.error('Failed to fetch transactions:', error)
     }
-  }
+  }, [walletId])
+
+  useEffect(() => {
+    if (walletId) {
+      fetchWallet()
+      fetchTransactions()
+    }
+  }, [walletId, fetchWallet, fetchTransactions])
 
   const formatCurrency = (amount: number, currency = 'EUR') => {
     return amount.toLocaleString('fr-FR', { style: 'currency', currency })

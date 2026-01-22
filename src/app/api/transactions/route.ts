@@ -275,7 +275,7 @@ async function handleLocalTransfer(
       // Créditer le wallet système avec le frais de plateforme
       await tx.wallet.update({
         where: { id: platformWallet.id },
-        data: { balance: { increment: platformFeeNum } },
+        data: { balance: { increment: platformFee } },
       })
     }
 
@@ -307,7 +307,7 @@ async function handleLocalTransfer(
         { transactionId: transaction.id, step: 'FRAUD_CHECK', status: 'SUCCESS', data: fraudResult },
         { transactionId: transaction.id, step: 'DEBIT', status: 'SUCCESS', data: { walletId: sourceWallet.id, amount: totalDebit } },
         { transactionId: transaction.id, step: 'CREDIT', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { walletId: destinationWallet.id, amount: data.amount } },
-        { transactionId: transaction.id, step: 'PLATFORM_FEE', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { platformWalletId: platformWallet.id, fee: platformFeeNum } },
+        { transactionId: transaction.id, step: 'PLATFORM_FEE', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { platformWalletId: platformWallet.id, fee: platformFee } },
       ],
     })
 

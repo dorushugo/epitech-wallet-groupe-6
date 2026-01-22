@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { User, LogOut, ChevronDown } from 'lucide-react'
@@ -28,27 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    fetchUser()
-  }, [])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setShowUserMenu(false)
-      }
-    }
-
-    if (showUserMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showUserMenu])
-
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const res = await fetch('/api/auth/me', {
         credentials: 'include', // Inclure les cookies dans la requête
@@ -80,7 +60,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } finally {
       setLoading(false)
     }
-  }
+  }, [router])
+
+  useEffect(() => {
+    fetchUser()
+  }, [fetchUser])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showUserMenu])
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', {

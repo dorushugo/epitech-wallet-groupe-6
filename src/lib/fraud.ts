@@ -1,5 +1,4 @@
 import { prisma } from './prisma'
-import { Decimal } from '@prisma/client/runtime/library'
 
 export interface FraudCheckResult {
   score: number
