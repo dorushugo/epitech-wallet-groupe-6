@@ -25,6 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<User | null>(null)
   const [wallets, setWallets] = useState<Wallet[]>([])
   const [loading, setLoading] = useState(true)
+  const [totalBalanceInEUR, setTotalBalanceInEUR] = useState<number | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
@@ -67,6 +68,49 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [fetchUser])
 
   useEffect(() => {
+    if (wallets.length > 0) {
+      calculateTotalBalance()
+    } else {
+      setTotalBalanceInEUR(0)
+    }
+  }, [wallets])
+
+  const calculateTotalBalance = async () => {
+    try {
+      // Convertir tous les soldes en EUR
+      const conversions = await Promise.all(
+        wallets.map(async (wallet) => {
+          if (wallet.currency === 'EUR') {
+            return wallet.balance
+          }
+          try {
+            const response = await fetch(
+              `/api/currency/convert?amount=${wallet.balance}&from=${wallet.currency}&to=EUR`
+            )
+            const data = await response.json()
+            if (data.success) {
+              return data.convertedAmount
+            }
+            return 0
+          } catch (error) {
+            console.error(`Failed to convert ${wallet.currency} to EUR:`, error)
+            return 0
+          }
+        })
+      )
+      const total = conversions.reduce((sum, amount) => sum + amount, 0)
+      setTotalBalanceInEUR(total)
+    } catch (error) {
+      console.error('Failed to calculate total balance:', error)
+      // Fallback: additionner seulement les EUR
+      const total = wallets
+        .filter((w) => w.currency === 'EUR')
+        .reduce((sum, w) => sum + w.balance, 0)
+      setTotalBalanceInEUR(total)
+    }
+  }
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setShowUserMenu(false)
@@ -97,8 +141,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     )
   }
-
-  const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0)
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -147,7 +189,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-4">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">
-                  {totalBalance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                  {totalBalanceInEUR !== null
+                    ? totalBalanceInEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+                    : '...'}
                 </p>
               </div>
               <div className="relative" ref={userMenuRef}>

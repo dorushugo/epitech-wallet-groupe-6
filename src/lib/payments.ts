@@ -2,6 +2,7 @@ import { prisma } from './prisma'
 import { stripe } from './stripe'
 import { checkFraud } from './fraud'
 import { calculatePlatformFee, getPlatformWallet } from './platform-fee'
+import { convertCurrency } from './currency'
 import { Decimal } from '@prisma/client/runtime/library'
 
 /**
@@ -44,12 +45,32 @@ export async function processDeposit(paymentIntentId: string): Promise<{
       return { success: false, error: 'Payment not succeeded in Stripe' }
     }
 
-    // Calculer le frais de plateforme (1%) - déjà inclus dans le paiement Stripe
-    const platformFeeNum = calculatePlatformFee(paymentIntent.amount)
-    const platformFee = new Decimal(platformFeeNum)
+    // Le montant dans paymentIntent.amount est dans la devise du wallet
+    // Calculer le frais de plateforme (1%) dans la devise du wallet
+    const platformFeeInWalletCurrency = calculatePlatformFee(Number(paymentIntent.amount))
+    const platformFee = new Decimal(platformFeeInWalletCurrency)
 
-    // Obtenir le wallet système
+    // Obtenir le wallet système (toujours en EUR)
     const platformWallet = await getPlatformWallet()
+    const platformWalletData = await prisma.wallet.findUnique({
+      where: { id: platformWallet.id },
+    })
+
+    // Convertir les frais de plateforme en EUR si nécessaire
+    let platformFeeInEUR = platformFeeInWalletCurrency
+    if (paymentIntent.currency !== 'EUR' && platformWalletData?.currency === 'EUR') {
+      try {
+        platformFeeInEUR = await convertCurrency(
+          platformFeeInWalletCurrency,
+          paymentIntent.currency,
+          'EUR'
+        )
+      } catch (error) {
+        console.error('Failed to convert platform fee to EUR:', error)
+        // En cas d'erreur, utiliser le montant original (mieux que de bloquer)
+        platformFeeInEUR = platformFeeInWalletCurrency
+      }
+    }
 
     // Traiter le dépôt atomiquement
     const result = await prisma.$transaction(async (tx) => {
@@ -63,12 +84,12 @@ export async function processDeposit(paymentIntentId: string): Promise<{
         },
       })
 
-      // Créditer le wallet système avec le frais de plateforme
+      // Créditer le wallet système avec le frais de plateforme (en EUR)
       await tx.wallet.update({
         where: { id: platformWallet.id },
         data: {
           balance: {
-            increment: platformFeeNum,
+            increment: platformFeeInEUR,
           },
         },
       })
@@ -79,7 +100,7 @@ export async function processDeposit(paymentIntentId: string): Promise<{
           userId: paymentIntent.userId,
           destinationWalletId: paymentIntent.walletId,
           amount: paymentIntent.amount,
-          platformFee: platformFee,
+          platformFee: new Decimal(platformFeeInEUR), // Frais en EUR (devise du wallet système)
           currency: paymentIntent.currency,
           type: 'DEPOSIT',
           status: 'SUCCESS',
@@ -88,6 +109,8 @@ export async function processDeposit(paymentIntentId: string): Promise<{
           metadata: {
             stripePaymentIntentId: paymentIntentId,
             paymentIntentId: paymentIntent.id,
+            platformFeeInWalletCurrency: platformFeeInWalletCurrency,
+            platformFeeInEUR: platformFeeInEUR,
           },
         },
       })

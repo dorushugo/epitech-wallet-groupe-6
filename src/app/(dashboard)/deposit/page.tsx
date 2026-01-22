@@ -53,8 +53,10 @@ export default function DepositPage() {
     }
   }
 
-  const calculateFees = (amount: number): number => {
+  const calculateFees = (amount: number, currency: string = 'EUR'): number => {
     // Frais Stripe: 1.5% + 0.25€ pour cartes EEE
+    // Note: Le 0.25€ fixe devrait être converti, mais pour simplifier l'affichage,
+    // on l'affiche tel quel (la conversion réelle se fait côté serveur)
     return amount * 0.015 + 0.25
   }
 
@@ -106,12 +108,20 @@ export default function DepositPage() {
 
     try {
       // Créer le PaymentIntent
+      const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
+      if (!selectedWallet) {
+        setError('Wallet non trouvé')
+        setProcessing(false)
+        return
+      }
+
       const res = await fetch('/api/payments/deposit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           walletId: selectedWalletId,
           amount: depositAmount,
+          currency: selectedWallet.currency, // Devise du wallet
         }),
       })
 
@@ -142,7 +152,9 @@ export default function DepositPage() {
   }
 
   const depositAmount = typeof amount === 'number' ? amount : parseFloat(amount as string) || 0
-  const fees = depositAmount > 0 ? calculateFees(depositAmount) : 0
+  const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
+  const walletCurrency = selectedWallet?.currency || 'EUR'
+  const fees = depositAmount > 0 ? calculateFees(depositAmount, walletCurrency) : 0
   const platformFee = depositAmount > 0 ? calculatePlatformFee(depositAmount) : 0
   const total = depositAmount + fees + platformFee // Montant total à payer (incluant frais Stripe + frais plateforme)
 
@@ -203,7 +215,11 @@ export default function DepositPage() {
           {/* Sélection du montant - Unifiée */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Montant (5€ - 1000€)
+              Montant à créditer
+              {(() => {
+                const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
+                return selectedWallet ? ` (${selectedWallet.currency})` : ''
+              })()}
             </label>
             <div className="space-y-3">
               {/* Boutons prédéfinis + Personnalisé */}
@@ -256,29 +272,33 @@ export default function DepositPage() {
           </div>
 
           {/* Résumé */}
-          {depositAmount > 0 && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Montant à créditer</span>
-                <span className="font-medium">{formatCurrency(depositAmount)}</span>
+          {depositAmount > 0 && (() => {
+            const selectedWallet = wallets.find((w) => w.id === selectedWalletId)
+            const walletCurrency = selectedWallet?.currency || 'EUR'
+            return (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Montant à créditer</span>
+                  <span className="font-medium">{formatCurrency(depositAmount, walletCurrency)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Frais Stripe (1.5% + 0.25€)</span>
+                  <span className="font-medium">{formatCurrency(fees, walletCurrency)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Frais de plateforme (1%)</span>
+                  <span className="font-medium">{formatCurrency(platformFee, walletCurrency)}</span>
+                </div>
+                <div className="border-t border-gray-200 pt-2 flex justify-between">
+                  <span className="font-semibold text-gray-900">Total à payer</span>
+                  <span className="font-bold text-lg text-gray-900">{formatCurrency(total, walletCurrency)}</span>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  Vous recevrez {formatCurrency(depositAmount, walletCurrency)} sur votre wallet
+                </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Frais Stripe (1.5% + 0.25€)</span>
-                <span className="font-medium">{formatCurrency(fees)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Frais de plateforme (1%)</span>
-                <span className="font-medium">{formatCurrency(platformFee)}</span>
-              </div>
-              <div className="border-t border-gray-200 pt-2 flex justify-between">
-                <span className="font-semibold text-gray-900">Total à payer</span>
-                <span className="font-bold text-lg text-gray-900">{formatCurrency(total)}</span>
-              </div>
-              <div className="text-xs text-gray-500 mt-2">
-                Vous recevrez {formatCurrency(depositAmount)} sur votre wallet
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {error && (
             <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">{error}</div>

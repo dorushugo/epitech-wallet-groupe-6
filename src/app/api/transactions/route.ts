@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth'
 import { checkFraud } from '@/lib/fraud'
 import { sendInterWalletTransfer } from '@/lib/interwallet'
 import { calculatePlatformFee, getPlatformWallet } from '@/lib/platform-fee'
+import { convertCurrency } from '@/lib/currency'
 import { Decimal } from '@prisma/client/runtime/library'
 import { z } from 'zod'
 import { TransactionStatus } from '@prisma/client'
@@ -90,6 +91,7 @@ const transferSchema = z.object({
   destinationWalletId: z.string().min(1, 'Wallet destinataire requis').optional(),
   destinationEmail: z.string().email().optional(),
   amount: z.number().positive('Montant doit être positif'),
+  destinationCurrency: z.string().length(3).optional(), // Devise du wallet de destination (montant saisi dans cette devise)
   description: z.string().max(255).optional(),
   // Inter-wallet fields
   isInterWallet: z.boolean().default(false),
@@ -230,7 +232,7 @@ async function handleLocalTransfer(
       where: { email: data.destinationEmail },
       include: {
         wallets: {
-          where: { isActive: true, currency: sourceWallet.currency },
+          where: { isActive: true },
           take: 1,
         },
       },
@@ -253,43 +255,87 @@ async function handleLocalTransfer(
     )
   }
 
-  // Vérifier que les devises correspondent
+  // Le montant reçu est dans la devise de destination (ou source si identique)
+  // On doit le convertir vers la devise source pour le débit
+  const amountInDestinationCurrency = data.amount // Montant dans la devise de destination
+  let amountToDebit = data.amount // Montant à débiter dans la devise source
+  let exchangeRate = 1
+
   if (destinationWallet.currency !== sourceWallet.currency) {
-    return NextResponse.json(
-      { success: false, error: 'Les devises des wallets doivent correspondre' },
-      { status: 400 }
-    )
+    // Vérifier que la devise de destination correspond
+    const expectedCurrency = data.destinationCurrency || destinationWallet.currency
+    if (expectedCurrency !== destinationWallet.currency) {
+      return NextResponse.json(
+        { success: false, error: 'La devise du montant ne correspond pas au wallet de destination' },
+        { status: 400 }
+      )
+    }
+
+    // Convertir depuis la devise de destination vers la devise source
+    try {
+      amountToDebit = await convertCurrency(
+        amountInDestinationCurrency,
+        destinationWallet.currency,
+        sourceWallet.currency
+      )
+      exchangeRate = amountToDebit / amountInDestinationCurrency
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: error instanceof Error ? error.message : 'Erreur de conversion de devise' },
+        { status: 400 }
+      )
+    }
   }
 
-  // Calculer la marge de plateforme (1%)
-  const platformFee = calculatePlatformFee(data.amount)
-  const totalDebit = data.amount + platformFee
+  // Calculer la marge de plateforme (1% sur le montant à débiter dans la devise source)
+  const platformFeeInSourceCurrency = calculatePlatformFee(amountToDebit)
+  const totalDebit = amountToDebit + platformFeeInSourceCurrency
 
-  // Obtenir le wallet système
+  // Obtenir le wallet système (toujours en EUR)
   const platformWallet = await getPlatformWallet()
+  const platformWalletData = await prisma.wallet.findUnique({
+    where: { id: platformWallet.id },
+  })
+
+  // Convertir les frais de plateforme en EUR si nécessaire (le wallet système est en EUR)
+  let platformFeeInEUR = platformFeeInSourceCurrency
+  if (sourceWallet.currency !== 'EUR' && platformWalletData?.currency === 'EUR') {
+    try {
+      platformFeeInEUR = await convertCurrency(
+        platformFeeInSourceCurrency,
+        sourceWallet.currency,
+        'EUR'
+      )
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: 'Erreur de conversion des frais de plateforme' },
+        { status: 400 }
+      )
+    }
+  }
 
   // Determine status based on fraud check
   const status = fraudResult.decision === 'REVIEW' ? 'REVIEW' : 'SUCCESS'
 
   // Execute transaction atomically
   const result = await prisma.$transaction(async (tx) => {
-    // Debit source wallet (montant + marge)
+    // Debit source wallet (montant + marge dans la devise source)
     await tx.wallet.update({
       where: { id: sourceWallet.id },
       data: { balance: { decrement: totalDebit } },
     })
 
-    // Credit destination wallet avec le montant net (only if not in review)
+    // Credit destination wallet avec le montant dans sa devise (only if not in review)
     if (status === 'SUCCESS') {
       await tx.wallet.update({
         where: { id: destinationWallet.id },
-        data: { balance: { increment: data.amount } },
+        data: { balance: { increment: amountInDestinationCurrency } },
       })
 
-      // Créditer le wallet système avec le frais de plateforme
+      // Créditer le wallet système avec le frais de plateforme (en EUR)
       await tx.wallet.update({
         where: { id: platformWallet.id },
-        data: { balance: { increment: platformFee } },
+        data: { balance: { increment: platformFeeInEUR } },
       })
     }
 
@@ -299,18 +345,25 @@ async function handleLocalTransfer(
         userId,
         sourceWalletId: sourceWallet.id,
         destinationWalletId: destinationWallet.id,
-        amount: data.amount,
-        platformFee: platformFee,
-        currency: sourceWallet.currency,
+        amount: amountInDestinationCurrency, // Montant dans la devise de destination (ce qui sera reçu)
+        platformFee: new Decimal(platformFeeInEUR), // Frais en EUR (devise du wallet système)
+        currency: destinationWallet.currency, // Devise du montant reçu
         type: 'TRANSFER',
         status,
         fraudScore: fraudResult.score,
         fraudReason: fraudResult.reasons.length > 0 ? fraudResult.reasons.join('; ') : null,
-        description: data.description,
-        executedAt: status === 'SUCCESS' ? new Date() : null,
         metadata: {
+          sourceCurrency: sourceWallet.currency,
+          destinationCurrency: destinationWallet.currency,
+          amountDebited: amountToDebit, // Montant débité dans la devise source
+          amountCredited: amountInDestinationCurrency, // Montant crédité dans la devise destination
+          platformFeeInSourceCurrency: platformFeeInSourceCurrency, // Frais dans la devise source
+          platformFeeInEUR: platformFeeInEUR, // Frais convertis en EUR
+          exchangeRate: exchangeRate,
           totalDebit: totalDebit,
         },
+        description: data.description,
+        executedAt: status === 'SUCCESS' ? new Date() : null,
       },
     })
 

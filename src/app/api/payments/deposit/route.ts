@@ -3,11 +3,13 @@ import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import { stripe, STRIPE_CURRENCY } from '@/lib/stripe'
 import { calculatePlatformFee } from '@/lib/platform-fee'
+import { convertCurrency } from '@/lib/currency'
 import { z } from 'zod'
 
 const depositSchema = z.object({
   walletId: z.string().min(1, 'Wallet requis'),
   amount: z.number().positive('Montant doit être positif').min(5, 'Minimum 5€').max(1000, 'Maximum 1000€'),
+  currency: z.string().length(3).optional(), // Devise du wallet (montant saisi dans cette devise)
 })
 
 // POST /api/payments/deposit - Créer un PaymentIntent Stripe
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { walletId, amount } = validation.data
+    const { walletId, amount, currency } = validation.data
 
     // Vérifier la propriété du wallet
     const wallet = await prisma.wallet.findFirst({
@@ -49,15 +51,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculer les frais Stripe (1.5% + 0.25€ pour cartes EEE)
-    const stripeFees = amount * 0.015 + 0.25
-    // Calculer le frais de plateforme (1%)
-    const platformFee = calculatePlatformFee(amount)
-    // Montant total à payer par l'utilisateur
-    const totalAmount = amount + stripeFees + platformFee
+    // Vérifier que la devise correspond
+    const walletCurrency = currency || wallet.currency
+    if (walletCurrency !== wallet.currency) {
+      return NextResponse.json(
+        { success: false, error: 'La devise ne correspond pas au wallet' },
+        { status: 400 }
+      )
+    }
 
-    // Convertir le montant total en centimes pour Stripe (EUR)
-    const totalAmountInCents = Math.round(totalAmount * 100)
+    // Le montant est dans la devise du wallet
+    // On doit le convertir en EUR pour Stripe si nécessaire
+    let amountInEUR = amount
+    let exchangeRate = 1
+    if (walletCurrency !== STRIPE_CURRENCY) {
+      try {
+        amountInEUR = await convertCurrency(amount, walletCurrency, STRIPE_CURRENCY)
+        exchangeRate = amountInEUR / amount
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, error: error instanceof Error ? error.message : 'Erreur de conversion de devise' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Calculer les frais Stripe (1.5% + 0.25€ pour cartes EEE)
+    // Les frais sont calculés sur le montant dans la devise du wallet
+    // Le 0.25€ fixe doit être converti dans la devise du wallet
+    const fixedFeeInWalletCurrency = walletCurrency === 'EUR' 
+      ? 0.25 
+      : await convertCurrency(0.25, 'EUR', walletCurrency)
+    const stripeFeesInWalletCurrency = amount * 0.015 + fixedFeeInWalletCurrency
+    // Calculer le frais de plateforme (1%) - dans la devise du wallet
+    const platformFeeInWalletCurrency = calculatePlatformFee(amount)
+    // Montant total à payer par l'utilisateur - dans la devise du wallet
+    const totalAmountInWalletCurrency = amount + stripeFeesInWalletCurrency + platformFeeInWalletCurrency
+
+    // Convertir le total en EUR pour Stripe
+    let totalAmountInEUR = totalAmountInWalletCurrency
+    if (walletCurrency !== STRIPE_CURRENCY) {
+      totalAmountInEUR = await convertCurrency(totalAmountInWalletCurrency, walletCurrency, STRIPE_CURRENCY)
+    }
+
+    // Convertir le montant total en centimes pour Stripe
+    const totalAmountInCents = Math.round(totalAmountInEUR * 100)
 
     // Déterminer l'URL de base depuis les headers de la requête
     const host = request.headers.get('host') || 'localhost:3000'
@@ -76,7 +114,7 @@ export async function POST(request: NextRequest) {
             currency: STRIPE_CURRENCY.toLowerCase(),
             product_data: {
               name: `Crédit wallet: ${wallet.name}`,
-              description: `Ajout de ${amount.toFixed(2)}€ sur votre wallet`,
+              description: `Ajout de ${amount.toFixed(2)} ${walletCurrency} sur votre wallet`,
             },
             unit_amount: totalAmountInCents, // Montant total incluant les frais
           },
@@ -90,10 +128,14 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         walletId: wallet.id,
         walletName: wallet.name,
-        amount: amount.toString(), // Montant à créditer sur le wallet (montant complet)
-        stripeFees: stripeFees.toFixed(2),
-        platformFee: platformFee.toFixed(2),
-        totalAmount: totalAmount.toFixed(2),
+        amount: amount.toString(), // Montant à créditer sur le wallet (dans la devise du wallet)
+        currency: walletCurrency, // Devise du wallet
+        amountInEUR: amountInEUR.toFixed(2), // Montant en EUR pour Stripe
+        exchangeRate: exchangeRate.toFixed(4),
+        stripeFees: stripeFeesInWalletCurrency.toFixed(2),
+        platformFee: platformFeeInWalletCurrency.toFixed(2),
+        totalAmount: totalAmountInWalletCurrency.toFixed(2),
+        totalAmountInEUR: totalAmountInEUR.toFixed(2),
       },
     })
 
