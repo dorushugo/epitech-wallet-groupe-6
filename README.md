@@ -138,6 +138,51 @@ STRIPE_CURRENCY="EUR"  # Devise par défaut
 | POST | `/api/inter-wallet/status` | Vérifier le statut |
 | GET | `/api/inter-wallet/status` | Info système |
 
+## Documentation API (OpenAPI/Swagger)
+
+Le projet inclut une documentation API complète au format OpenAPI 3.1.0.
+
+### Accès à la documentation
+
+Une fois le serveur démarré, la documentation interactive est accessible sur :
+
+- **Interface Swagger UI** : http://localhost:3000/api-docs
+- **Fichier OpenAPI brut** : http://localhost:3000/api/openapi (format YAML)
+
+### Contenu de la documentation
+
+La documentation inclut :
+
+- **Tous les endpoints API** avec descriptions détaillées
+- **Schémas de données typés** basés sur les validations Zod existantes
+- **Exemples de requêtes/réponses** pour chaque endpoint
+- **Codes de statut HTTP** et gestion d'erreurs
+- **Sécurité** : authentification JWT (cookies), signatures HMAC pour inter-wallet
+- **Paramètres de requête** et filtres disponibles
+
+### Validation du schéma OpenAPI
+
+Pour valider le fichier `openapi.yaml` :
+
+```bash
+bun run validate:openapi
+```
+
+### Utilisation avec d'autres outils
+
+Le fichier `openapi.yaml` peut être utilisé avec :
+
+- **Postman** : Importer le fichier pour générer une collection
+- **Insomnia** : Importer pour tester les endpoints
+- **Code génération** : Utiliser `openapi-typescript` ou `openapi-generator` pour générer des clients TypeScript
+- **Mock servers** : Utiliser Prism ou WireMock pour créer un serveur mock
+
+### Notes importantes
+
+- **Authentification** : Les cookies HTTP-only ne peuvent pas être testés directement dans Swagger UI. Utilisez un navigateur ou un outil comme Postman pour tester les endpoints authentifiés.
+- **Signatures HMAC** : Pour les endpoints inter-wallet, la signature doit être calculée côté client. Voir la section "Protocole Inter-Wallet" pour des exemples de code.
+- **Webhooks Stripe** : L'endpoint `/api/payments/webhook` nécessite une signature Stripe valide. Utilisez Stripe CLI pour tester en local.
+
 ## Protocole Inter-Wallet
 
 ### Format de requête
@@ -294,9 +339,11 @@ epitech-wallet/
 ## Scripts
 
 ```bash
-bun run dev        # Serveur dev
-bun run build      # Build production
-bun run start      # Serveur production
-bun run seed       # Seed utilisateurs test
-bunx prisma studio # Interface admin BDD
+bun run dev              # Serveur dev
+bun run build            # Build production
+bun run start            # Serveur production
+bun run seed             # Seed utilisateurs test
+bun run validate:openapi # Valider le schéma OpenAPI
+bun run docs             # Afficher l'URL de la documentation
+bunx prisma studio       # Interface admin BDD
 ```

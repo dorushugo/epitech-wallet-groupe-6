@@ -1,0 +1,1605 @@
+openapi: 3.0.3
+info:
+  title: Digital Wallet API - Groupe 6
+  version: 1.0.0
+  description: |
+    API REST complète pour le système de wallet digital avec protocole inter-wallets et détection de fraude.
+    
+    ## Authentification
+    L'API utilise des cookies HTTP-only pour l'authentification JWT. Le token est automatiquement envoyé via le cookie `auth_token` après connexion.
+    
+    ## Protocole Inter-Wallet
+    Les endpoints inter-wallet utilisent des signatures HMAC-SHA256 pour sécuriser les communications entre systèmes.
+    
+    ## Marge de Plateforme
+    Toutes les transactions incluent une marge de 1% prélevée par la plateforme.
+  contact:
+    name: Groupe 6 - Epitech
+    email: quentin.robert@epitech.digital
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Serveur de développement local
+  - url: https://api.wallet.example.com
+    description: Serveur de production (exemple)
+
+tags:
+  - name: Authentication
+    description: Endpoints d'authentification et gestion de session
+  - name: Wallets
+    description: Gestion des wallets utilisateur
+  - name: Transactions
+    description: Transactions locales et inter-wallets
+  - name: Inter-Wallet
+    description: Protocole de communication inter-systèmes
+  - name: Payments
+    description: Intégration Stripe (dépôts et retraits)
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Connexion utilisateur
+      description: Authentifie un utilisateur et crée une session avec JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              success:
+                value:
+                  email: user@example.com
+                  password: password123
+      responses:
+        '200':
+          description: Connexion réussie
+          headers:
+            Set-Cookie:
+              description: Cookie d'authentification HTTP-only
+              schema:
+                type: string
+                example: auth_token=eyJhbGc...; HttpOnly; Path=/; Max-Age=604800
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    user:
+                      id: clxxxxx
+                      email: user@example.com
+                      firstName: John
+                      lastName: Doe
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Inscription utilisateur
+      description: Crée un nouveau compte utilisateur avec un wallet par défaut
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              success:
+                value:
+                  email: newuser@example.com
+                  password: securepass123
+                  firstName: Jane
+                  lastName: Smith
+      responses:
+        '200':
+          description: Inscription réussie
+          headers:
+            Set-Cookie:
+              description: Cookie d'authentification HTTP-only
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    user:
+                      id: clxxxxx
+                      email: newuser@example.com
+                      firstName: Jane
+                      lastName: Smith
+                    wallet:
+                      id: clxxxxx
+                      name: Mon Wallet Principal
+                      balance: 0
+                      currency: EUR
+                      createdAt: '2024-01-20T12:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email déjà utilisé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    success: false
+                    error: Un compte avec cet email existe déjà
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Utilisateur courant
+      description: Récupère les informations de l'utilisateur authentifié et ses wallets
+      responses:
+        '200':
+          description: Informations utilisateur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    user:
+                      id: clxxxxx
+                      email: user@example.com
+                      firstName: John
+                      lastName: Doe
+                      createdAt: '2024-01-20T12:00:00.000Z'
+                    wallets:
+                      - id: clxxxxx
+                        name: Mon Wallet Principal
+                        balance: 150.50
+                        currency: EUR
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Déconnexion
+      description: Déconnecte l'utilisateur et supprime la session
+      responses:
+        '200':
+          description: Déconnexion réussie
+          headers:
+            Set-Cookie:
+              description: Suppression du cookie d'authentification
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/wallets:
+    get:
+      tags:
+        - Wallets
+      summary: Liste des wallets
+      description: Récupère tous les wallets actifs de l'utilisateur authentifié
+      responses:
+        '200':
+          description: Liste des wallets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  wallets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Wallet'
+              examples:
+                success:
+                  value:
+                    success: true
+                    wallets:
+                      - id: clxxxxx
+                        name: Mon Wallet Principal
+                        balance: 150.50
+                        currency: EUR
+                        createdAt: '2024-01-20T12:00:00.000Z'
+                      - id: clyyyyy
+                        name: Wallet USD
+                        balance: 200.00
+                        currency: USD
+                        createdAt: '2024-01-21T10:00:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Wallets
+      summary: Créer un wallet
+      description: Crée un nouveau wallet pour l'utilisateur (maximum 5 wallets par utilisateur)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletRequest'
+            examples:
+              success:
+                value:
+                  name: Mon Nouveau Wallet
+                  currency: EUR
+      responses:
+        '200':
+          description: Wallet créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  wallet:
+                    $ref: '#/components/schemas/Wallet'
+              examples:
+                success:
+                  value:
+                    success: true
+                    wallet:
+                      id: clxxxxx
+                      name: Mon Nouveau Wallet
+                      balance: 0
+                      currency: EUR
+                      createdAt: '2024-01-20T12:00:00.000Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Historique des transactions
+      description: Récupère l'historique des transactions avec filtres optionnels
+      parameters:
+        - name: page
+          in: query
+          description: "Numéro de page (défaut: 1)"
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: "Nombre d'éléments par page (défaut: 20)"
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: walletId
+          in: query
+          description: Filtrer par wallet (source ou destination)
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          description: Filtrer par type de transaction
+          required: false
+          schema:
+            $ref: '#/components/schemas/TransactionType'
+        - name: status
+          in: query
+          description: Filtrer par statut
+          required: false
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+      responses:
+        '200':
+          description: Liste des transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+              examples:
+                success:
+                  value:
+                    success: true
+                    transactions:
+                      - id: clxxxxx
+                        type: TRANSFER
+                        status: SUCCESS
+                        amount: 50.00
+                        platformFee: 0.50
+                        currency: EUR
+                        description: Paiement café
+                        fraudScore: 0
+                        isInterWallet: false
+                        sourceWallet:
+                          id: clxxxxx
+                          name: Mon Wallet Principal
+                        destinationWallet:
+                          id: clyyyyy
+                          name: Wallet Destinataire
+                        createdAt: '2024-01-20T12:00:00.000Z'
+                        executedAt: '2024-01-20T12:00:01.000Z'
+                    pagination:
+                      page: 1
+                      limit: 20
+                      total: 45
+                      totalPages: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Transactions
+      summary: Créer une transaction
+      description: |
+        Crée une nouvelle transaction (transfert local ou inter-wallet).
+        
+        Pour un transfert local, fournir soit `destinationWalletId` soit `destinationEmail`.
+        Pour un transfert inter-wallet, fournir `isInterWallet: true`, `externalSystemUrl` et `externalWalletId`.
+        
+        La marge de plateforme (1%) est automatiquement prélevée.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+            examples:
+              localTransfer:
+                value:
+                  sourceWalletId: clxxxxx
+                  destinationEmail: recipient@example.com
+                  amount: 50.00
+                  description: Remboursement
+              interWallet:
+                value:
+                  sourceWalletId: clxxxxx
+                  amount: 100.00
+                  description: Paiement inter-système
+                  isInterWallet: true
+                  externalSystemUrl: https://autre-groupe.example.com
+                  externalWalletId: clyyyyy
+      responses:
+        '200':
+          description: Transaction créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+                  newBalance:
+                    type: number
+                    description: Nouveau solde du wallet source
+              examples:
+                success:
+                  value:
+                    success: true
+                    transaction:
+                      id: clxxxxx
+                      status: SUCCESS
+                      amount: 50.00
+                      currency: EUR
+                      fraudScore: 0
+                      createdAt: '2024-01-20T12:00:00.000Z'
+                      executedAt: '2024-01-20T12:00:01.000Z'
+                    newBalance: 100.50
+                interWallet:
+                  value:
+                    success: true
+                    transaction:
+                      id: clxxxxx
+                      status: PROCESSING
+                      interWalletRef: Groupe6-xxxx-xxxxxxxx
+                      amount: 100.00
+                      currency: EUR
+                    message: Transaction inter-wallet en cours de traitement
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Transaction bloquée par la détection de fraude
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                  transaction:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                        example: BLOCKED
+                      fraudScore:
+                        type: integer
+                      fraudReasons:
+                        type: array
+                        items:
+                          type: string
+              examples:
+                blocked:
+                  value:
+                    success: false
+                    error: Transaction bloquée par la détection de fraude
+                    transaction:
+                      id: clxxxxx
+                      status: BLOCKED
+                      fraudScore: 100
+                      fraudReasons:
+                        - Montant très élevé: 10000€ (> 10000€)
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/inter-wallet/transfer:
+    post:
+      tags:
+        - Inter-Wallet
+      summary: Recevoir un transfert inter-wallet
+      description: |
+        Endpoint pour recevoir un transfert depuis un autre système wallet.
+        
+        **Sécurité**: La signature HMAC-SHA256 doit être calculée sur le payload JSON stringifié avec la clé secrète partagée.
+      security:
+        - hmacSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterWalletTransferRequest'
+            examples:
+              success:
+                value:
+                  transactionRef: Groupe6-xxxx-xxxxxxxx
+                  sourceSystemUrl: https://autre-groupe.example.com
+                  sourceSystemName: AutreWallet
+                  sourceWalletId: clxxxxx
+                  destinationWalletId: clyyyyy
+                  amount: 100.00
+                  currency: EUR
+                  description: Paiement inter-système
+                  timestamp: '2024-01-20T12:00:00.000Z'
+      responses:
+        '200':
+          description: Transfert accepté et traité
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transactionRef:
+                    type: string
+                  status:
+                    type: string
+                    enum: [ACCEPTED, REJECTED]
+                  transactionId:
+                    type: string
+                  signature:
+                    type: string
+                    description: Signature HMAC de la réponse
+              examples:
+                success:
+                  value:
+                    success: true
+                    transactionRef: Groupe6-xxxx-xxxxxxxx
+                    status: ACCEPTED
+                    transactionId: clxxxxx
+                    signature: abc123def456...
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Signature HMAC invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidSignature:
+                  value:
+                    success: false
+                    error: Invalid signature
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/inter-wallet/validate:
+    post:
+      tags:
+        - Inter-Wallet
+      summary: Valider un transfert inter-wallet
+      description: |
+        Valide ou rejette un transfert inter-wallet en attente.
+        Utilisé par le système source pour confirmer le traitement.
+      security:
+        - hmacSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterWalletValidateRequest'
+            examples:
+              accepted:
+                value:
+                  transactionRef: Groupe6-xxxx-xxxxxxxx
+                  sourceSystemUrl: https://autre-groupe.example.com
+                  status: ACCEPTED
+                  timestamp: '2024-01-20T12:00:00.000Z'
+              rejected:
+                value:
+                  transactionRef: Groupe6-xxxx-xxxxxxxx
+                  sourceSystemUrl: https://autre-groupe.example.com
+                  status: REJECTED
+                  reason: Solde insuffisant
+                  timestamp: '2024-01-20T12:00:00.000Z'
+      responses:
+        '200':
+          description: Validation traitée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transactionRef:
+                    type: string
+                  status:
+                    type: string
+                  message:
+                    type: string
+              examples:
+                accepted:
+                  value:
+                    success: true
+                    transactionRef: Groupe6-xxxx-xxxxxxxx
+                    status: SUCCESS
+                    message: Transaction validated successfully
+                rejected:
+                  value:
+                    success: true
+                    transactionRef: Groupe6-xxxx-xxxxxxxx
+                    status: REJECTED
+                    message: Transaction rejected, funds refunded
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Signature HMAC invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Transaction non trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  value:
+                    success: false
+                    error: Transaction not found
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/inter-wallet/status:
+    get:
+      tags:
+        - Inter-Wallet
+      summary: Informations système (public)
+      description: Retourne les informations publiques du système pour l'interopérabilité
+      security: []
+      responses:
+        '200':
+          description: Informations système
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+              examples:
+                success:
+                  value:
+                    systemUrl: http://localhost:3000
+                    systemName: Groupe6-Wallet
+                    protocolVersion: '1.0'
+                    supportedCurrencies:
+                      - EUR
+                    endpoints:
+                      transfer: /api/inter-wallet/transfer
+                      validate: /api/inter-wallet/validate
+                      status: /api/inter-wallet/status
+
+    post:
+      tags:
+        - Inter-Wallet
+      summary: Vérifier le statut d'une transaction
+      description: |
+        Vérifie le statut d'une transaction inter-wallet par sa référence.
+        La réponse est signée avec HMAC-SHA256.
+      security:
+        - hmacSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterWalletStatusRequest'
+            examples:
+              success:
+                value:
+                  transactionRef: Groupe6-xxxx-xxxxxxxx
+                  sourceSystemUrl: https://autre-groupe.example.com
+                  timestamp: '2024-01-20T12:00:00.000Z'
+      responses:
+        '200':
+          description: Statut de la transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transactionRef:
+                    type: string
+                  status:
+                    $ref: '#/components/schemas/TransactionStatus'
+                  amount:
+                    type: number
+                  currency:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  executedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        step:
+                          type: string
+                        status:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+                  signature:
+                    type: string
+                    description: Signature HMAC de la réponse
+              examples:
+                success:
+                  value:
+                    success: true
+                    transactionRef: Groupe6-xxxx-xxxxxxxx
+                    status: SUCCESS
+                    amount: 100.00
+                    currency: EUR
+                    createdAt: '2024-01-20T12:00:00.000Z'
+                    executedAt: '2024-01-20T12:00:01.000Z'
+                    steps:
+                      - step: VALIDATION
+                        status: SUCCESS
+                        timestamp: '2024-01-20T12:00:00.500Z'
+                      - step: FRAUD_CHECK
+                        status: SUCCESS
+                        timestamp: '2024-01-20T12:00:00.600Z'
+                    signature: abc123def456...
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Signature HMAC invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Transaction non trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/payments/deposit:
+    post:
+      tags:
+        - Payments
+      summary: Créer une session de dépôt Stripe
+      description: |
+        Crée une session Stripe Checkout pour créditer un wallet.
+        
+        Le montant total inclut les frais Stripe (1.5% + 0.25€) et la marge de plateforme (1%).
+        L'utilisateur sera redirigé vers Stripe Checkout pour le paiement.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDepositRequest'
+            examples:
+              success:
+                value:
+                  walletId: clxxxxx
+                  amount: 50.00
+      responses:
+        '200':
+          description: Session créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  sessionId:
+                    type: string
+                    description: ID de la session Stripe Checkout
+                  url:
+                    type: string
+                    format: uri
+                    description: URL de redirection vers Stripe Checkout
+              examples:
+                success:
+                  value:
+                    success: true
+                    sessionId: cs_test_xxxxx
+                    url: https://checkout.stripe.com/pay/cs_test_xxxxx
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Wallet non trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/payments/cashout:
+    post:
+      tags:
+        - Payments
+      summary: Initier un retrait
+      description: |
+        Initie un retrait (cashout) depuis un wallet vers un compte bancaire ou une carte.
+        
+        La marge de plateforme (1%) est prélevée sur le montant.
+        Pour les virements bancaires, le format IBAN est requis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCashoutRequest'
+            examples:
+              bankTransfer:
+                value:
+                  walletId: clxxxxx
+                  amount: 100.00
+                  method: bank_transfer
+                  destination: FR1420041010050500013M02606
+                  description: Retrait mensuel
+              card:
+                value:
+                  walletId: clxxxxx
+                  amount: 50.00
+                  method: card
+                  destination: card_xxxxx
+      responses:
+        '200':
+          description: Retrait initié avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  payoutId:
+                    type: string
+                    description: ID du payout Stripe
+                  transactionId:
+                    type: string
+                    description: ID de la transaction créée
+                  message:
+                    type: string
+              examples:
+                success:
+                  value:
+                    success: true
+                    payoutId: po_xxxxx
+                    transactionId: clxxxxx
+                    message: Retrait initié avec succès
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Wallet non trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/payments/webhook:
+    post:
+      tags:
+        - Payments
+      summary: Webhook Stripe
+      description: |
+        Endpoint webhook pour recevoir les événements Stripe.
+        
+        **Important**: Cet endpoint doit être configuré dans le dashboard Stripe.
+        Les événements gérés sont:
+        - `checkout.session.completed`
+        - `payment_intent.succeeded`
+        - `payment_intent.payment_failed`
+        - `payout.paid`
+        - `payout.failed`
+        
+        La signature Stripe doit être validée pour sécuriser l'endpoint.
+      security:
+        - stripeWebhook: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Événement Stripe (format Stripe Event)
+            examples:
+              checkoutCompleted:
+                value:
+                  id: evt_xxxxx
+                  type: checkout.session.completed
+                  data:
+                    object:
+                      id: cs_test_xxxxx
+                      payment_intent: pi_xxxxx
+                      metadata:
+                        userId: clxxxxx
+                        walletId: clyyyyy
+                        amount: '50.00'
+      responses:
+        '200':
+          description: Webhook reçu et traité
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                  processed:
+                    type: boolean
+                  transactionId:
+                    type: string
+                    nullable: true
+                  error:
+                    type: string
+                    nullable: true
+              examples:
+                success:
+                  value:
+                    received: true
+                    processed: true
+                    transactionId: clxxxxx
+                failed:
+                  value:
+                    received: true
+                    processed: false
+                    error: PaymentIntent not found in database
+        '400':
+          description: Signature Stripe invalide ou événement malformé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                invalidSignature:
+                  value:
+                    error: Webhook signature verification failed
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: auth_token
+      description: |
+        Cookie HTTP-only contenant le JWT d'authentification.
+        Automatiquement défini après connexion via `/api/auth/login` ou `/api/auth/register`.
+    hmacSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        Signature HMAC-SHA256 du payload JSON.
+        Calcul: `crypto.createHmac('sha256', HMAC_SECRET).update(JSON.stringify(payload)).digest('hex')`
+    stripeWebhook:
+      type: apiKey
+      in: header
+      name: stripe-signature
+      description: |
+        Signature Stripe du webhook pour valider l'authenticité de l'événement.
+        Générée automatiquement par Stripe.
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: clxxxxx
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        firstName:
+          type: string
+          nullable: true
+          example: John
+        lastName:
+          type: string
+          nullable: true
+          example: Doe
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-20T12:00:00.000Z'
+      required:
+        - id
+        - email
+        - createdAt
+
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: string
+          example: clxxxxx
+        name:
+          type: string
+          maxLength: 50
+          example: Mon Wallet Principal
+        balance:
+          type: number
+          format: double
+          description: Solde en euros (ou devise du wallet)
+          example: 150.50
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+          example: EUR
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-20T12:00:00.000Z'
+      required:
+        - id
+        - name
+        - balance
+        - currency
+        - createdAt
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          example: clxxxxx
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        amount:
+          type: number
+          format: double
+          description: Montant de la transaction (en euros)
+          example: 50.00
+        platformFee:
+          type: number
+          format: double
+          nullable: true
+          description: "Marge de plateforme prélevée (1%)"
+          example: 0.50
+        currency:
+          type: string
+          default: EUR
+          example: EUR
+        description:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: Paiement café
+        fraudScore:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: Score de fraude (0-100)
+          example: 0
+        fraudReason:
+          type: string
+          nullable: true
+          description: Raison du score de fraude
+          example: null
+        isInterWallet:
+          type: boolean
+          default: false
+          description: Indique si c'est une transaction inter-wallet
+        externalSystemUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: URL du système externe (pour inter-wallet)
+        externalWalletId:
+          type: string
+          nullable: true
+          description: ID du wallet externe (pour inter-wallet)
+        sourceWallet:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        destinationWallet:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+          example: '2024-01-20T12:00:00.000Z'
+        executedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2024-01-20T12:00:01.000Z'
+      required:
+        - id
+        - type
+        - status
+        - amount
+        - currency
+        - isInterWallet
+        - createdAt
+
+    TransactionType:
+      type: string
+      enum:
+        - DEPOSIT
+        - WITHDRAWAL
+        - TRANSFER
+        - INTER_WALLET
+      description: Type de transaction
+      example: TRANSFER
+
+    TransactionStatus:
+      type: string
+      enum:
+        - PENDING
+        - PROCESSING
+        - SUCCESS
+        - FAILED
+        - BLOCKED
+        - REVIEW
+        - CANCELLED
+      description: Statut de la transaction
+      example: SUCCESS
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        limit:
+          type: integer
+          minimum: 1
+          example: 20
+        total:
+          type: integer
+          minimum: 0
+          example: 45
+        totalPages:
+          type: integer
+          minimum: 0
+          example: 3
+      required:
+        - page
+        - limit
+        - total
+        - totalPages
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 1
+          example: password123
+      required:
+        - email
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+        - success
+        - user
+
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: newuser@example.com
+        password:
+          type: string
+          minLength: 8
+          description: Minimum 8 caractères
+          example: securepass123
+        firstName:
+          type: string
+          nullable: true
+          example: Jane
+        lastName:
+          type: string
+          nullable: true
+          example: Smith
+      required:
+        - email
+        - password
+
+    RegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+        wallet:
+          $ref: '#/components/schemas/Wallet'
+      required:
+        - success
+        - user
+        - wallet
+
+    MeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+        wallets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Wallet'
+      required:
+        - success
+        - user
+        - wallets
+
+    CreateWalletRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Mon Nouveau Wallet
+        currency:
+          type: string
+          enum: [EUR, USD, GBP]
+          default: EUR
+          example: EUR
+      required:
+        - name
+
+    CreateTransactionRequest:
+      type: object
+      properties:
+        sourceWalletId:
+          type: string
+          description: ID du wallet source
+          example: clxxxxx
+        destinationWalletId:
+          type: string
+          nullable: true
+          description: ID du wallet destinataire (pour transfert local)
+          example: clyyyyy
+        destinationEmail:
+          type: string
+          format: email
+          nullable: true
+          description: Email du destinataire (alternative à destinationWalletId)
+          example: recipient@example.com
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Montant à transférer (en euros)
+          example: 50.00
+        description:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: Remboursement
+        isInterWallet:
+          type: boolean
+          default: false
+          description: Indique si c'est un transfert inter-wallet
+        externalSystemUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: "URL du système externe (requis si isInterWallet=true)"
+          example: https://autre-groupe.example.com
+        externalWalletId:
+          type: string
+          nullable: true
+          description: "ID du wallet externe (requis si isInterWallet=true)"
+          example: clyyyyy
+      required:
+        - sourceWalletId
+        - amount
+
+    InterWalletTransferRequest:
+      type: object
+      properties:
+        transactionRef:
+          type: string
+          description: "Référence unique de la transaction (format: SystemName-timestamp-random)"
+          example: Groupe6-xxxx-xxxxxxxx
+        sourceSystemUrl:
+          type: string
+          format: uri
+          description: URL du système source
+          example: https://autre-groupe.example.com
+        sourceSystemName:
+          type: string
+          description: Nom du système source
+          example: AutreWallet
+        sourceWalletId:
+          type: string
+          description: ID du wallet source (dans le système source)
+          example: clxxxxx
+        destinationWalletId:
+          type: string
+          description: ID du wallet destinataire (dans ce système)
+          example: clyyyyy
+        amount:
+          type: number
+          format: double
+          description: Montant à transférer (en euros)
+          example: 100.00
+        currency:
+          type: string
+          default: EUR
+          example: EUR
+        description:
+          type: string
+          nullable: true
+          example: Paiement inter-système
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp ISO 8601 de la requête
+          example: '2024-01-20T12:00:00.000Z'
+      required:
+        - transactionRef
+        - sourceSystemUrl
+        - sourceSystemName
+        - sourceWalletId
+        - destinationWalletId
+        - amount
+        - currency
+        - timestamp
+
+    InterWalletValidateRequest:
+      type: object
+      properties:
+        transactionRef:
+          type: string
+          example: Groupe6-xxxx-xxxxxxxx
+        sourceSystemUrl:
+          type: string
+          format: uri
+          example: https://autre-groupe.example.com
+        status:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+          description: Statut de validation
+        reason:
+          type: string
+          nullable: true
+          description: Raison du rejet (si status=REJECTED)
+          example: Solde insuffisant
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-20T12:00:00.000Z'
+      required:
+        - transactionRef
+        - sourceSystemUrl
+        - status
+        - timestamp
+
+    InterWalletStatusRequest:
+      type: object
+      properties:
+        transactionRef:
+          type: string
+          example: Groupe6-xxxx-xxxxxxxx
+        sourceSystemUrl:
+          type: string
+          format: uri
+          example: https://autre-groupe.example.com
+        timestamp:
+          type: string
+          format: date-time
+          example: '2024-01-20T12:00:00.000Z'
+      required:
+        - transactionRef
+        - sourceSystemUrl
+        - timestamp
+
+    SystemInfo:
+      type: object
+      properties:
+        systemUrl:
+          type: string
+          format: uri
+          example: http://localhost:3000
+        systemName:
+          type: string
+          example: Groupe6-Wallet
+        protocolVersion:
+          type: string
+          example: '1.0'
+        supportedCurrencies:
+          type: array
+          items:
+            type: string
+          example: [EUR]
+        endpoints:
+          type: object
+          properties:
+            transfer:
+              type: string
+              example: /api/inter-wallet/transfer
+            validate:
+              type: string
+              example: /api/inter-wallet/validate
+            status:
+              type: string
+              example: /api/inter-wallet/status
+      required:
+        - systemUrl
+        - systemName
+        - protocolVersion
+        - supportedCurrencies
+        - endpoints
+
+    CreateDepositRequest:
+      type: object
+      properties:
+        walletId:
+          type: string
+          example: clxxxxx
+        amount:
+          type: number
+          format: double
+          minimum: 5
+          maximum: 1000
+          description: Montant à créditer (en euros, entre 5€ et 1000€)
+          example: 50.00
+      required:
+        - walletId
+        - amount
+
+    CreateCashoutRequest:
+      type: object
+      properties:
+        walletId:
+          type: string
+          example: clxxxxx
+        amount:
+          type: number
+          format: double
+          minimum: 10
+          description: Montant à retirer (en euros, minimum 10€)
+          example: 100.00
+        method:
+          type: string
+          enum: [bank_transfer, card]
+          description: Méthode de retrait
+          example: bank_transfer
+        destination:
+          type: string
+          description: |
+            Destination du retrait:
+            - Pour bank_transfer: IBAN (format: 2 lettres + 4-34 caractères alphanumériques)
+            - Pour card: ID de la carte Stripe
+          example: FR1420041010050500013M02606
+        description:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: Retrait mensuel
+      required:
+        - walletId
+        - amount
+        - method
+        - destination
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Erreur serveur
+      required:
+        - success
+        - error
+
+  responses:
+    BadRequest:
+      description: Requête invalide
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation:
+              value:
+                success: false
+                error: Email invalide
+            insufficientBalance:
+              value:
+                success: false
+                error: Solde insuffisant (montant + frais de plateforme)
+
+    Unauthorized:
+      description: Non authentifié
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            noAuth:
+              value:
+                success: false
+                error: Non authentifié
+
+    NotFound:
+      description: Ressource non trouvée
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            walletNotFound:
+              value:
+                success: false
+                error: Wallet non trouvé
+
+    InternalServerError:
+      description: Erreur serveur
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            serverError:
+              value:
+                success: false
+                error: Erreur serveur
