@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { User, LogOut, ChevronDown } from 'lucide-react'
 
 interface User {
   id: string
@@ -24,14 +25,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<User | null>(null)
   const [wallets, setWallets] = useState<Wallet[]>([])
   const [loading, setLoading] = useState(true)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchUser()
   }, [])
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showUserMenu])
+
   const fetchUser = async () => {
     try {
-      const res = await fetch('/api/auth/me')
+      const res = await fetch('/api/auth/me', {
+        credentials: 'include', // Inclure les cookies dans la requête
+        cache: 'no-store', // Ne pas mettre en cache pour toujours vérifier la session
+      })
+      
+      if (!res.ok) {
+        // Si 401, rediriger vers login
+        if (res.status === 401) {
+          router.push('/login')
+          return
+        }
+        throw new Error('Failed to fetch user')
+      }
+
       const data = await res.json()
 
       if (data.success) {
@@ -40,15 +72,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } else {
         router.push('/login')
       }
-    } catch {
-      router.push('/login')
+    } catch (error) {
+      console.error('Failed to fetch user:', error)
+      // Ne pas rediriger immédiatement en cas d'erreur réseau
+      // Laisser l'utilisateur voir la page avec un état de chargement
+      // Seulement rediriger si c'est vraiment une erreur d'auth
     } finally {
       setLoading(false)
     }
   }
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' })
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    })
     router.push('/login')
   }
 
@@ -66,7 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard', label: 'Dashboard', icon: '📊' },
     { href: '/wallets', label: 'Wallets', icon: '💰' },
     { href: '/transactions', label: 'Transactions', icon: '📋' },
-    { href: '/inter-wallet', label: 'Inter-Wallets', icon: '🌐' },
+    { href: '/inter-wallet', label: 'Inter-Wallet', icon: '🌐', beta: true },
   ]
 
   return (
@@ -88,13 +126,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1 ${
                       pathname === item.href
                         ? 'bg-blue-50 text-blue-700'
                         : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
-                    {item.icon} {item.label}
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    {item.beta && (
+                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">
+                        BETA
+                      </span>
+                    )}
                   </Link>
                 ))}
               </nav>
@@ -103,18 +147,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-4">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">
-                  {user?.firstName || user?.email}
-                </p>
-                <p className="text-xs text-gray-500">
                   {totalBalance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                 </p>
               </div>
-              <button
-                onClick={handleLogout}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
-              >
-                Déconnexion
-              </button>
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition"
+                >
+                  <User className="w-5 h-5" />
+                  <span className="hidden sm:inline">{user?.firstName || user?.email?.split('@')[0]}</span>
+                  <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+                </button>
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <div className="px-4 py-2 border-b border-gray-100">
+                      <p className="text-sm font-medium text-gray-900">{user?.firstName || 'Utilisateur'}</p>
+                      <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Déconnexion
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -126,13 +186,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link
             key={item.href}
             href={item.href}
-            className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
+            className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap flex items-center gap-1 ${
               pathname === item.href
                 ? 'bg-blue-50 text-blue-700'
                 : 'text-gray-600'
             }`}
           >
-            {item.icon} {item.label}
+            <span>{item.icon}</span>
+            <span>{item.label}</span>
+            {item.beta && (
+              <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">
+                BETA
+              </span>
+            )}
           </Link>
         ))}
       </nav>

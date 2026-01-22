@@ -103,6 +103,11 @@ export default function InterWalletPage() {
     return amount.toLocaleString('fr-FR', { style: 'currency', currency })
   }
 
+  const calculatePlatformFee = (amount: number): number => {
+    // Marge de plateforme: 1%
+    return Math.round(amount * 0.01 * 100) / 100
+  }
+
   if (loading) {
     return <div className="animate-pulse space-y-4">
       <div className="h-12 bg-gray-200 rounded-lg w-48"></div>
@@ -306,6 +311,29 @@ Headers:
                   placeholder="Paiement inter-système"
                 />
               </div>
+
+              {/* Résumé avec marge */}
+              {transferForm.amount && parseFloat(transferForm.amount) > 0 && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Montant envoyé</span>
+                    <span className="font-medium">{formatCurrency(parseFloat(transferForm.amount))}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Frais de plateforme (1%)</span>
+                    <span className="font-medium">{formatCurrency(calculatePlatformFee(parseFloat(transferForm.amount)))}</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 flex justify-between">
+                    <span className="font-semibold text-gray-900">Total débité</span>
+                    <span className="font-bold text-lg text-gray-900">
+                      {formatCurrency(parseFloat(transferForm.amount) + calculatePlatformFee(parseFloat(transferForm.amount)))}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    Le wallet externe recevra {formatCurrency(parseFloat(transferForm.amount))}
+                  </div>
+                </div>
+              )}
 
               {transferResult && (
                 <div className={`p-3 text-sm rounded-lg ${

@@ -15,6 +15,7 @@ interface Transaction {
   type: string
   status: string
   amount: number
+  platformFee?: number | null
   currency: string
   description?: string
   fraudScore?: number
@@ -35,6 +36,11 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [showSendModal, setShowSendModal] = useState(action === 'send')
+  const [filters, setFilters] = useState({
+    walletId: searchParams.get('walletId') || '',
+    type: searchParams.get('type') || '',
+    status: searchParams.get('status') || '',
+  })
   const [sendForm, setSendForm] = useState({
     sourceWalletId: '',
     destinationEmail: '',
@@ -47,13 +53,19 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [filters])
 
   const fetchData = async () => {
     try {
+      const queryParams = new URLSearchParams()
+      queryParams.set('limit', '50')
+      if (filters.walletId) queryParams.set('walletId', filters.walletId)
+      if (filters.type) queryParams.set('type', filters.type)
+      if (filters.status) queryParams.set('status', filters.status)
+
       const [walletsRes, txRes] = await Promise.all([
         fetch('/api/wallets'),
-        fetch('/api/transactions?limit=50'),
+        fetch(`/api/transactions?${queryParams.toString()}`),
       ])
 
       const walletsData = await walletsRes.json()
@@ -115,6 +127,11 @@ export default function TransactionsPage() {
     return amount.toLocaleString('fr-FR', { style: 'currency', currency })
   }
 
+  const calculatePlatformFee = (amount: number): number => {
+    // Marge de plateforme: 1%
+    return Math.round(amount * 0.01 * 100) / 100
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'SUCCESS': return 'bg-green-100 text-green-700'
@@ -143,6 +160,62 @@ export default function TransactionsPage() {
         >
           Nouvelle transaction
         </button>
+      </div>
+
+      {/* Filtres */}
+      <div className="bg-white rounded-xl shadow-sm p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Wallet
+            </label>
+            <select
+              value={filters.walletId}
+              onChange={(e) => setFilters({ ...filters, walletId: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tous les wallets</option>
+              {wallets.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Type
+            </label>
+            <select
+              value={filters.type}
+              onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tous les types</option>
+              <option value="DEPOSIT">Dépôt</option>
+              <option value="WITHDRAWAL">Retrait</option>
+              <option value="TRANSFER">Transfert</option>
+              <option value="INTER_WALLET">Inter-Wallet</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Statut
+            </label>
+            <select
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tous les statuts</option>
+              <option value="SUCCESS">Succès</option>
+              <option value="PENDING">En attente</option>
+              <option value="PROCESSING">En traitement</option>
+              <option value="FAILED">Échoué</option>
+              <option value="BLOCKED">Bloqué</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Transactions Table */}
@@ -281,6 +354,29 @@ export default function TransactionsPage() {
                   placeholder="Remboursement, cadeau..."
                 />
               </div>
+
+              {/* Résumé avec marge */}
+              {sendForm.amount && parseFloat(sendForm.amount) > 0 && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Montant envoyé</span>
+                    <span className="font-medium">{formatCurrency(parseFloat(sendForm.amount))}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Frais de plateforme (1%)</span>
+                    <span className="font-medium">{formatCurrency(calculatePlatformFee(parseFloat(sendForm.amount)))}</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 flex justify-between">
+                    <span className="font-semibold text-gray-900">Total débité</span>
+                    <span className="font-bold text-lg text-gray-900">
+                      {formatCurrency(parseFloat(sendForm.amount) + calculatePlatformFee(parseFloat(sendForm.amount)))}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    Le destinataire recevra {formatCurrency(parseFloat(sendForm.amount))}
+                  </div>
+                </div>
+              )}
 
               {sendError && (
                 <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">

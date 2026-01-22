@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 
 interface Wallet {
   id: string
@@ -97,9 +98,10 @@ export default function WalletsPage() {
       {/* Wallets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {wallets.map((wallet, index) => (
-          <div
+          <Link
             key={wallet.id}
-            className={`rounded-2xl p-6 text-white ${
+            href={`/wallets/${wallet.id}`}
+            className={`rounded-2xl p-6 text-white cursor-pointer transition-transform hover:scale-105 ${
               index === 0 ? 'bg-gradient-to-br from-blue-600 to-indigo-600' :
               index === 1 ? 'bg-gradient-to-br from-purple-600 to-pink-600' :
               index === 2 ? 'bg-gradient-to-br from-green-600 to-teal-600' :
@@ -120,7 +122,7 @@ export default function WalletsPage() {
               <span>ID: {wallet.id.slice(0, 8)}...</span>
               <span>{wallet.currency}</span>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 

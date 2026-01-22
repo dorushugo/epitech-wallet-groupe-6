@@ -23,6 +23,8 @@ model User {
   wallets       Wallet[]
   transactions  Transaction[]
   sessions      Session[]
+  paymentIntents PaymentIntent[]
+  payouts       Payout[]
 }
 
 model Session {
@@ -56,6 +58,8 @@ model Wallet {
   
   outgoingTransactions Transaction[] @relation("SourceWallet")
   incomingTransactions Transaction[] @relation("DestinationWallet")
+  paymentIntents PaymentIntent[]
+  payouts       Payout[]
   
   @@index([userId])
 }
@@ -71,6 +75,7 @@ model Transaction {
   destinationWalletId String?
   
   amount              Decimal           @db.Decimal(15, 2)
+  platformFee         Decimal?          @db.Decimal(15, 2) // Marge de 1% prélevée par la plateforme
   currency            String            @default("EUR")
   type                TransactionType
   status              TransactionStatus @default(PENDING)
@@ -98,6 +103,7 @@ model Transaction {
   
   logs                TransactionLog[]
   interWalletLogs     InterWalletLog[]
+  payout              Payout?
   
   @@index([userId])
   @@index([sourceWalletId])
@@ -147,6 +153,56 @@ model InterWalletLog {
   
   @@index([transactionId])
   @@index([createdAt])
+}
+
+// ============================================
+// STRIPE PAYMENTS
+// ============================================
+
+model PaymentIntent {
+  id                String   @id @default(cuid())
+  userId            String
+  walletId          String
+  stripePaymentId   String   @unique // payment_intent_xxx
+  amount            Decimal  @db.Decimal(15, 2)
+  currency          String   @default("EUR")
+  status            String   // pending, succeeded, failed, canceled
+  transactionId     String?  // Lien vers Transaction si créée
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet            Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([walletId])
+  @@index([stripePaymentId])
+  @@index([status])
+}
+
+model Payout {
+  id                String   @id @default(cuid())
+  userId            String
+  walletId          String
+  stripePayoutId    String?  @unique // po_xxx
+  amount            Decimal  @db.Decimal(15, 2)
+  currency          String   @default("EUR")
+  method            String   // bank_transfer, card
+  destination       String   // IBAN, carte, etc.
+  status            String   // pending, paid, failed, canceled
+  transactionId     String?  @unique // Lien vers Transaction
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet            Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  transaction       Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  
+  @@index([userId])
+  @@index([walletId])
+  @@index([status])
 }
 
 // ============================================

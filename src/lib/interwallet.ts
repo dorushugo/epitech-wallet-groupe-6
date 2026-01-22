@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 import { prisma } from './prisma'
+import { calculatePlatformFee, getPlatformWallet } from './platform-fee'
+import { Decimal } from '@prisma/client/runtime/library'
 
 const HMAC_SECRET = process.env.INTERWALLET_HMAC_SECRET || 'default-hmac-secret'
 const SYSTEM_URL = process.env.INTERWALLET_SYSTEM_URL || 'http://localhost:3000'
@@ -220,6 +222,14 @@ export async function processIncomingTransfer(
       return { success: false, error: 'Wallet not found' }
     }
 
+    // Calculer le frais de plateforme (1%)
+    const platformFeeNum = calculatePlatformFee(payload.amount)
+    const platformFee = new Decimal(platformFeeNum)
+    const netAmount = payload.amount - platformFeeNum
+
+    // Obtenir le wallet système
+    const platformWallet = await getPlatformWallet()
+
     // Create transaction and credit wallet atomically
     const result = await prisma.$transaction(async (tx) => {
       // Create incoming transaction
@@ -228,6 +238,7 @@ export async function processIncomingTransfer(
           userId: wallet.userId,
           destinationWalletId: wallet.id,
           amount: payload.amount,
+          platformFee: platformFee,
           currency: payload.currency,
           type: 'INTER_WALLET',
           status: 'SUCCESS',
@@ -237,15 +248,28 @@ export async function processIncomingTransfer(
           interWalletRef: payload.transactionRef,
           description: payload.description || `Reçu de ${payload.sourceSystemName}`,
           executedAt: new Date(),
+          metadata: {
+            netAmount: netAmount,
+          },
         },
       })
 
-      // Credit wallet
+      // Credit wallet avec le montant net (après marge)
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
           balance: {
-            increment: payload.amount,
+            increment: netAmount,
+          },
+        },
+      })
+
+      // Créditer le wallet système avec le frais de plateforme
+      await tx.wallet.update({
+        where: { id: platformWallet.id },
+        data: {
+          balance: {
+            increment: platformFeeNum,
           },
         },
       })

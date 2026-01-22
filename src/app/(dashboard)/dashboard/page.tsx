@@ -15,6 +15,7 @@ interface Transaction {
   type: string
   status: string
   amount: number
+  platformFee?: number | null
   currency: string
   description?: string
   fraudScore?: number

@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import { checkFraud } from '@/lib/fraud'
 import { sendInterWalletTransfer } from '@/lib/interwallet'
+import { calculatePlatformFee, getPlatformWallet } from '@/lib/platform-fee'
+import { Decimal } from '@prisma/client/runtime/library'
 import { z } from 'zod'
 import { TransactionStatus } from '@prisma/client'
 
@@ -22,10 +24,17 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20')
     const status = searchParams.get('status') as TransactionStatus | null
     const type = searchParams.get('type')
+    const walletId = searchParams.get('walletId')
 
     const where: Record<string, unknown> = { userId: user.id }
     if (status) where.status = status
     if (type) where.type = type
+    if (walletId) {
+      where.OR = [
+        { sourceWalletId: walletId },
+        { destinationWalletId: walletId },
+      ]
+    }
 
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
@@ -48,6 +57,7 @@ export async function GET(request: NextRequest) {
         type: t.type,
         status: t.status,
         amount: Number(t.amount),
+        platformFee: t.platformFee ? Number(t.platformFee) : null,
         currency: t.currency,
         description: t.description,
         fraudScore: t.fraudScore,
@@ -103,7 +113,7 @@ export async function POST(request: NextRequest) {
     
     if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: validation.error.errors[0].message },
+        { success: false, error: validation.error.issues[0].message },
         { status: 400 }
       )
     }
@@ -126,10 +136,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check balance
-    if (Number(sourceWallet.balance) < data.amount) {
+    // Calculer la marge de plateforme (1%)
+    const platformFee = calculatePlatformFee(data.amount)
+    const totalDebit = data.amount + platformFee
+
+    // Check balance (montant + marge)
+    if (Number(sourceWallet.balance) < totalDebit) {
       return NextResponse.json(
-        { success: false, error: 'Solde insuffisant' },
+        { success: false, error: 'Solde insuffisant (montant + frais de plateforme)' },
         { status: 400 }
       )
     }
@@ -233,22 +247,35 @@ async function handleLocalTransfer(
     )
   }
 
+  // Calculer la marge de plateforme (1%)
+  const platformFee = calculatePlatformFee(data.amount)
+  const totalDebit = data.amount + platformFee
+
+  // Obtenir le wallet système
+  const platformWallet = await getPlatformWallet()
+
   // Determine status based on fraud check
   const status = fraudResult.decision === 'REVIEW' ? 'REVIEW' : 'SUCCESS'
 
   // Execute transaction atomically
   const result = await prisma.$transaction(async (tx) => {
-    // Debit source wallet
+    // Debit source wallet (montant + marge)
     await tx.wallet.update({
       where: { id: sourceWallet.id },
-      data: { balance: { decrement: data.amount } },
+      data: { balance: { decrement: totalDebit } },
     })
 
-    // Credit destination wallet (only if not in review)
+    // Credit destination wallet avec le montant net (only if not in review)
     if (status === 'SUCCESS') {
       await tx.wallet.update({
         where: { id: destinationWallet.id },
         data: { balance: { increment: data.amount } },
+      })
+
+      // Créditer le wallet système avec le frais de plateforme
+      await tx.wallet.update({
+        where: { id: platformWallet.id },
+        data: { balance: { increment: platformFeeNum } },
       })
     }
 
@@ -259,6 +286,7 @@ async function handleLocalTransfer(
         sourceWalletId: sourceWallet.id,
         destinationWalletId: destinationWallet.id,
         amount: data.amount,
+        platformFee: platformFee,
         currency: sourceWallet.currency,
         type: 'TRANSFER',
         status,
@@ -266,6 +294,9 @@ async function handleLocalTransfer(
         fraudReason: fraudResult.reasons.length > 0 ? fraudResult.reasons.join('; ') : null,
         description: data.description,
         executedAt: status === 'SUCCESS' ? new Date() : null,
+        metadata: {
+          totalDebit: totalDebit,
+        },
       },
     })
 
@@ -274,8 +305,9 @@ async function handleLocalTransfer(
       data: [
         { transactionId: transaction.id, step: 'VALIDATION', status: 'SUCCESS', data: { amount: data.amount } },
         { transactionId: transaction.id, step: 'FRAUD_CHECK', status: 'SUCCESS', data: fraudResult },
-        { transactionId: transaction.id, step: 'DEBIT', status: 'SUCCESS', data: { walletId: sourceWallet.id } },
-        { transactionId: transaction.id, step: 'CREDIT', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { walletId: destinationWallet.id } },
+        { transactionId: transaction.id, step: 'DEBIT', status: 'SUCCESS', data: { walletId: sourceWallet.id, amount: totalDebit } },
+        { transactionId: transaction.id, step: 'CREDIT', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { walletId: destinationWallet.id, amount: data.amount } },
+        { transactionId: transaction.id, step: 'PLATFORM_FEE', status: status === 'SUCCESS' ? 'SUCCESS' : 'PENDING', data: { platformWalletId: platformWallet.id, fee: platformFeeNum } },
       ],
     })
 
@@ -308,10 +340,26 @@ async function handleInterWalletTransfer(
   data: z.infer<typeof transferSchema>,
   fraudResult: { score: number; decision: string; reasons: string[] }
 ) {
-  // Debit source wallet first
-  await prisma.wallet.update({
-    where: { id: sourceWallet.id },
-    data: { balance: { decrement: data.amount } },
+  // Calculer le frais de plateforme (1%)
+  const platformFeeNum = calculatePlatformFee(data.amount)
+  const platformFee = new Decimal(platformFeeNum)
+  const totalDebit = data.amount + platformFeeNum
+
+  // Obtenir le wallet système
+  const platformWallet = await getPlatformWallet()
+
+  // Debit source wallet (montant + marge) et créditer le wallet système atomiquement
+  await prisma.$transaction(async (tx) => {
+    await tx.wallet.update({
+      where: { id: sourceWallet.id },
+      data: { balance: { decrement: totalDebit } },
+    })
+
+    // Créditer le wallet système avec la marge
+    await tx.wallet.update({
+      where: { id: platformWallet.id },
+      data: { balance: { increment: platformFee } },
+    })
   })
 
   // Create pending transaction
@@ -320,6 +368,7 @@ async function handleInterWalletTransfer(
       userId,
       sourceWalletId: sourceWallet.id,
       amount: data.amount,
+      platformFee: platformFee,
       currency: sourceWallet.currency,
       type: 'INTER_WALLET',
       status: 'PENDING',
@@ -329,10 +378,13 @@ async function handleInterWalletTransfer(
       externalSystemUrl: data.externalSystemUrl,
       externalWalletId: data.externalWalletId,
       description: data.description,
+      metadata: {
+        totalDebit: totalDebit,
+      },
     },
   })
 
-  // Send to external system
+  // Send to external system (montant net seulement)
   const interWalletResult = await sendInterWalletTransfer(
     data.externalSystemUrl!,
     data.externalWalletId!,
@@ -364,10 +416,18 @@ async function handleInterWalletTransfer(
       message: 'Transaction inter-wallet en cours de traitement',
     })
   } else {
-    // Rollback: refund source wallet
-    await prisma.wallet.update({
-      where: { id: sourceWallet.id },
-      data: { balance: { increment: data.amount } },
+    // Rollback: refund source wallet (montant + marge) et débiter le wallet système
+    await prisma.$transaction(async (tx) => {
+      await tx.wallet.update({
+        where: { id: sourceWallet.id },
+        data: { balance: { increment: totalDebit } },
+      })
+
+      // Débiter le wallet système (remboursement du frais de plateforme)
+      await tx.wallet.update({
+        where: { id: platformWallet.id },
+        data: { balance: { decrement: platformFeeNum } },
+      })
     })
 
     // Mark transaction as failed
