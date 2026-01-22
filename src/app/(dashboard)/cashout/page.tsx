@@ -36,7 +36,7 @@ export default function CashoutPage() {
   const [loading, setLoading] = useState(true)
   const [selectedWalletId, setSelectedWalletId] = useState('')
   const [amount, setAmount] = useState<number | ''>('')
-  const [method, setMethod] = useState<'bank_transfer' | 'card'>('bank_transfer')
+  const [method] = useState<'bank_transfer'>('bank_transfer')
   const [destination, setDestination] = useState('')
   const [accountName, setAccountName] = useState('')
   const [description, setDescription] = useState('')
@@ -106,12 +106,8 @@ export default function CashoutPage() {
   }, [searchParams, wallets])
 
   const calculateFees = (): number => {
-    // Frais de cashout: 0.25€ pour virement bancaire
-    if (method === 'bank_transfer') {
-      return 0.25
-    }
-    // Pour les cartes, frais plus élevés (à ajuster selon Stripe)
-    return 1.0
+    // Frais de traitement: 0.25€ pour virement bancaire
+    return 0.25
   }
 
   const calculatePlatformFee = (amount: number): number => {
@@ -146,10 +142,11 @@ export default function CashoutPage() {
     }
 
     const platformFee = calculatePlatformFee(cashoutAmount)
-    const totalDebit = cashoutAmount + platformFee
+    const fees = calculateFees()
+    const totalDebit = cashoutAmount + platformFee + fees
 
     if (totalDebit > selectedWallet.balance) {
-      setError(`Solde insuffisant (montant + frais de plateforme: ${formatCurrency(totalDebit)})`)
+      setError(`Solde insuffisant (montant + frais: ${formatCurrency(totalDebit)})`)
       setProcessing(false)
       return
     }
@@ -160,8 +157,8 @@ export default function CashoutPage() {
       return
     }
 
-    if (method === 'bank_transfer' && !accountName) {
-      setError('Nom du compte requis pour virement bancaire')
+    if (!accountName) {
+      setError('Nom du compte requis')
       setProcessing(false)
       return
     }
@@ -247,8 +244,8 @@ export default function CashoutPage() {
   const cashoutAmount = typeof amount === 'number' ? amount : parseFloat(amount as string) || 0
   const fees = cashoutAmount > 0 ? calculateFees() : 0
   const platformFee = cashoutAmount > 0 ? calculatePlatformFee(cashoutAmount) : 0
-  const totalDebit = cashoutAmount + platformFee // Montant total débité du wallet
-  const netAmount = cashoutAmount - fees // Montant reçu par l'utilisateur (après frais Stripe)
+  const totalDebit = cashoutAmount + platformFee + fees // Montant total débité du wallet (montant + frais plateforme + frais traitement)
+  const netAmount = cashoutAmount // Montant reçu par l'utilisateur (exactement ce qui a été input)
 
   if (loading) {
     return (
@@ -328,88 +325,45 @@ export default function CashoutPage() {
               />
             </div>
 
-            {/* Méthode */}
+            {/* IBAN */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Méthode de retrait
+                IBAN
               </label>
-              <select
-                value={method}
+              <input
+                type="text"
+                value={destination}
                 onChange={(e) => {
-                  setMethod(e.target.value as 'bank_transfer' | 'card')
-                  setDestination('')
-                  setAccountName('')
+                  // Nettoyer et formater l'IBAN
+                  const cleaned = e.target.value.replace(/\s/g, '').toUpperCase()
+                  setDestination(cleaned)
+                  setError('')
                 }}
-                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="bank_transfer">Virement bancaire</option>
-                <option value="card">Carte bancaire</option>
-              </select>
+                placeholder="FR76 1234 5678 9012 3456 7890 123"
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
+                required
+              />
+              {destination && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Formaté: {formatIBAN(destination)}
+                </p>
+              )}
             </div>
 
-            {/* Destination selon la méthode */}
-            {method === 'bank_transfer' ? (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    IBAN
-                  </label>
-                  <input
-                    type="text"
-                    value={destination}
-                    onChange={(e) => {
-                      // Nettoyer et formater l'IBAN
-                      const cleaned = e.target.value.replace(/\s/g, '').toUpperCase()
-                      setDestination(cleaned)
-                      setError('')
-                    }}
-                    placeholder="FR76 1234 5678 9012 3456 7890 123"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
-                    required
-                  />
-                  {destination && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Formaté: {formatIBAN(destination)}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nom du compte
-                  </label>
-                  <input
-                    type="text"
-                    value={accountName}
-                    onChange={(e) => setAccountName(e.target.value)}
-                    placeholder="Jean Dupont"
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-              </>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Numéro de carte
-                </label>
-                <input
-                  type="text"
-                  value={destination}
-                  onChange={(e) => {
-                    // Nettoyer le numéro de carte
-                    const cleaned = e.target.value.replace(/\s/g, '')
-                    setDestination(cleaned)
-                    setError('')
-                  }}
-                  placeholder="1234 5678 9012 3456"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  Note: Pour les retraits sur carte, Stripe Connect est requis
-                </p>
-              </div>
-            )}
+            {/* Nom du compte */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nom du compte
+              </label>
+              <input
+                type="text"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder="Jean Dupont"
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
 
             {/* Description optionnelle */}
             <div>
@@ -430,7 +384,7 @@ export default function CashoutPage() {
             {cashoutAmount > 0 && selectedWallet && (
               <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Montant retiré</span>
+                  <span className="text-gray-600">Montant à recevoir</span>
                   <span className="font-medium">{formatCurrency(cashoutAmount)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -462,7 +416,7 @@ export default function CashoutPage() {
                 !amount ||
                 cashoutAmount < 10 ||
                 !destination ||
-                (method === 'bank_transfer' && !accountName) ||
+                !accountName ||
                 (selectedWallet && totalDebit > selectedWallet.balance)
               }
               className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -498,8 +452,7 @@ export default function CashoutPage() {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      {payout.method === 'bank_transfer' ? 'Virement bancaire' : 'Carte'} -{' '}
-                      {payout.destination}
+                      Virement bancaire - {payout.destination}
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
                       {new Date(payout.createdAt).toLocaleDateString('fr-FR')}

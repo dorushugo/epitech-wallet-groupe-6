@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
 
 const transferSchema = z.object({
   sourceWalletId: z.string().min(1, 'Wallet source requis'),
-  destinationWalletId: z.string().optional(),
+  destinationWalletId: z.string().min(1, 'Wallet destinataire requis').optional(),
   destinationEmail: z.string().email().optional(),
   amount: z.number().positive('Montant doit être positif'),
   description: z.string().max(255).optional(),
@@ -95,7 +95,10 @@ const transferSchema = z.object({
   isInterWallet: z.boolean().default(false),
   externalSystemUrl: z.string().url().optional(),
   externalWalletId: z.string().optional(),
-})
+}).refine(
+  (data) => data.destinationWalletId || data.destinationEmail,
+  { message: 'destinationWalletId ou destinationEmail requis' }
+)
 
 // POST /api/transactions - Create a new transaction
 export async function POST(request: NextRequest) {
@@ -217,10 +220,12 @@ async function handleLocalTransfer(
   let destinationWallet
 
   if (data.destinationWalletId) {
+    // Utiliser directement le wallet ID fourni
     destinationWallet = await prisma.wallet.findFirst({
       where: { id: data.destinationWalletId, isActive: true },
     })
   } else if (data.destinationEmail) {
+    // Fallback: chercher par email (pour compatibilité)
     const destUser = await prisma.user.findUnique({
       where: { email: data.destinationEmail },
       include: {
@@ -240,9 +245,18 @@ async function handleLocalTransfer(
     )
   }
 
+  // Vérifier qu'on ne transfère pas vers le même wallet
   if (destinationWallet.id === sourceWallet.id) {
     return NextResponse.json(
       { success: false, error: 'Impossible de transférer vers le même wallet' },
+      { status: 400 }
+    )
+  }
+
+  // Vérifier que les devises correspondent
+  if (destinationWallet.currency !== sourceWallet.currency) {
+    return NextResponse.json(
+      { success: false, error: 'Les devises des wallets doivent correspondre' },
       { status: 400 }
     )
   }

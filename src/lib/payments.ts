@@ -171,11 +171,13 @@ export async function processCashout(params: {
     // Calculer le frais de plateforme (1%)
     const platformFeeNum = calculatePlatformFee(amount)
     const platformFee = new Decimal(platformFeeNum)
-    const totalDebit = amount + platformFeeNum
+    // Frais de traitement: 0.25€ pour virement bancaire
+    const processingFee = method === 'bank_transfer' ? 0.25 : 0
+    const totalDebit = amount + platformFeeNum + processingFee
 
-    // Vérifier le solde (montant demandé + marge)
+    // Vérifier le solde (montant demandé + frais plateforme + frais traitement)
     if (Number(wallet.balance) < totalDebit) {
-      return { success: false, error: 'Solde insuffisant (montant + frais de plateforme)' }
+      return { success: false, error: 'Solde insuffisant (montant + frais)' }
     }
 
     // Appliquer la détection de fraude pour les montants importants
@@ -201,15 +203,10 @@ export async function processCashout(params: {
 
     try {
       // Pour les virements bancaires, utiliser Stripe Payouts
-      if (method === 'bank_transfer') {
-        // Note: Stripe Payouts nécessite un compte Connect ou un compte standard avec vérification
-        // Pour l'instant, on crée juste l'enregistrement en DB
-        // En production, il faudra configurer Stripe Connect ou utiliser l'API Payouts
-        stripePayoutId = null // À implémenter avec Stripe Connect/Payouts
-      } else if (method === 'card') {
-        // Pour les cartes, utiliser Stripe Transfers (nécessite Connect)
-        stripePayoutId = null // À implémenter avec Stripe Connect
-      }
+      // Note: Stripe Payouts nécessite un compte Connect ou un compte standard avec vérification
+      // Pour l'instant, on crée juste l'enregistrement en DB
+      // En production, il faudra configurer Stripe Connect ou utiliser l'API Payouts
+      stripePayoutId = null // À implémenter avec Stripe Connect/Payouts
     } catch (stripeError) {
       console.error('Stripe payout creation error:', stripeError)
       // On continue quand même pour créer l'enregistrement en DB
@@ -220,7 +217,7 @@ export async function processCashout(params: {
 
     // Traiter le cashout atomiquement
     const result = await prisma.$transaction(async (tx) => {
-      // Débiter le wallet utilisateur (montant demandé + marge)
+      // Débiter le wallet utilisateur (montant demandé + frais plateforme + frais traitement)
       await tx.wallet.update({
         where: { id: walletId },
         data: {
@@ -240,19 +237,22 @@ export async function processCashout(params: {
         },
       })
 
-      // Créer le Payout en DB (montant net envoyé à l'utilisateur)
+      // Créer le Payout en DB (montant exact que l'utilisateur recevra)
       const payout = await tx.payout.create({
         data: {
           userId,
           walletId,
           stripePayoutId,
-          amount,
+          amount, // Montant exact que l'utilisateur recevra (ce qui a été input)
           currency: wallet.currency,
           method,
           destination,
           status: stripePayoutId ? 'pending' : 'pending',
           metadata: {
             description,
+            processingFee: processingFee,
+            platformFee: platformFeeNum,
+            totalDebit: totalDebit,
           },
         },
       })
@@ -262,17 +262,18 @@ export async function processCashout(params: {
         data: {
           userId,
           sourceWalletId: walletId,
-          amount,
+          amount, // Montant que l'utilisateur recevra
           platformFee: platformFee,
           currency: wallet.currency,
           type: 'WITHDRAWAL',
           status: 'PENDING',
-          description: description || `Retrait ${method === 'bank_transfer' ? 'virement bancaire' : 'carte'}`,
+          description: description || 'Retrait virement bancaire',
           metadata: {
             payoutId: payout.id,
             method,
             destination: destination.substring(0, 4) + '****', // Masquer les infos sensibles
             totalDebit: totalDebit,
+            processingFee: processingFee,
           },
         },
       })
@@ -302,7 +303,7 @@ export async function processCashout(params: {
             transactionId: transaction.id,
             step: 'PAYOUT_CREATED',
             status: 'SUCCESS',
-            data: { payoutId: payout.id, method, netAmount: amount },
+            data: { payoutId: payout.id, method, amount: amount, processingFee, platformFee: platformFeeNum, totalDebit },
           },
         ],
       })
@@ -406,14 +407,17 @@ export async function processPayoutFailed(payoutId: string): Promise<{
       : null
 
     const platformFee = transaction?.platformFee ? Number(transaction.platformFee) : 0
-    const totalRefund = Number(payout.amount) + platformFee
+    const processingFee = transaction?.metadata && typeof transaction.metadata === 'object' && 'processingFee' in transaction.metadata
+      ? Number(transaction.metadata.processingFee) || 0
+      : 0
+    const totalRefund = Number(payout.amount) + platformFee + processingFee
 
     // Obtenir le wallet système
     const platformWallet = await getPlatformWallet()
 
     // Rembourser le wallet atomiquement
     await prisma.$transaction(async (tx) => {
-      // Rembourser le wallet (montant + marge)
+      // Rembourser le wallet (montant + frais plateforme + frais traitement)
       await tx.wallet.update({
         where: { id: payout.walletId },
         data: {
@@ -454,7 +458,7 @@ export async function processPayoutFailed(payoutId: string): Promise<{
             transactionId: payout.transactionId,
             step: 'PAYOUT_FAILED',
             status: 'FAILED',
-            data: { payoutId, refunded: true, totalRefund, platformFeeRefunded: platformFee },
+            data: { payoutId, refunded: true, totalRefund, platformFeeRefunded: platformFee, processingFeeRefunded: processingFee },
           },
         })
       }

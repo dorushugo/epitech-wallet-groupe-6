@@ -44,9 +44,12 @@ export default function TransactionsPage() {
   const [sendForm, setSendForm] = useState({
     sourceWalletId: '',
     destinationEmail: '',
+    destinationWalletId: '',
     amount: '',
     description: '',
   })
+  const [destinationWallets, setDestinationWallets] = useState<Wallet[]>([])
+  const [loadingDestinationWallets, setLoadingDestinationWallets] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
   const [sendError, setSendError] = useState('')
   const [sendSuccess, setSendSuccess] = useState('')
@@ -85,6 +88,45 @@ export default function TransactionsPage() {
     fetchData()
   }, [filters, fetchData])
 
+  // Charger les wallets du destinataire quand l'email change
+  useEffect(() => {
+    const loadDestinationWallets = async () => {
+      if (!sendForm.destinationEmail || !sendForm.destinationEmail.includes('@')) {
+        setDestinationWallets([])
+        setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+        return
+      }
+
+      setLoadingDestinationWallets(true)
+      try {
+        const res = await fetch(`/api/wallets?email=${encodeURIComponent(sendForm.destinationEmail)}`)
+        const data = await res.json()
+        if (data.success) {
+          setDestinationWallets(data.wallets)
+          // Si un seul wallet, le sélectionner automatiquement
+          if (data.wallets.length === 1) {
+            setSendForm((prev) => ({ ...prev, destinationWalletId: data.wallets[0].id }))
+          } else {
+            setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+          }
+        } else {
+          setDestinationWallets([])
+          setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+        }
+      } catch (error) {
+        console.error('Failed to load destination wallets:', error)
+        setDestinationWallets([])
+        setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+      } finally {
+        setLoadingDestinationWallets(false)
+      }
+    }
+
+    // Debounce pour éviter trop de requêtes
+    const timeoutId = setTimeout(loadDestinationWallets, 500)
+    return () => clearTimeout(timeoutId)
+  }, [sendForm.destinationEmail])
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     setSendError('')
@@ -92,12 +134,18 @@ export default function TransactionsPage() {
     setSendLoading(true)
 
     try {
+      if (!sendForm.destinationWalletId) {
+        setSendError('Veuillez sélectionner un wallet de destination')
+        setSendLoading(false)
+        return
+      }
+
       const res = await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceWalletId: sendForm.sourceWalletId,
-          destinationEmail: sendForm.destinationEmail,
+          destinationWalletId: sendForm.destinationWalletId,
           amount: parseFloat(sendForm.amount),
           description: sendForm.description,
         }),
@@ -107,7 +155,8 @@ export default function TransactionsPage() {
 
       if (data.success) {
         setSendSuccess(`${sendForm.amount}€ envoyés avec succès!`)
-        setSendForm((prev) => ({ ...prev, destinationEmail: '', amount: '', description: '' }))
+        setSendForm((prev) => ({ ...prev, destinationEmail: '', destinationWalletId: '', amount: '', description: '' }))
+        setDestinationWallets([])
         fetchData()
         setTimeout(() => {
           setShowSendModal(false)
@@ -319,12 +368,42 @@ export default function TransactionsPage() {
                 <input
                   type="email"
                   value={sendForm.destinationEmail}
-                  onChange={(e) => setSendForm({ ...sendForm, destinationEmail: e.target.value })}
+                  onChange={(e) => setSendForm({ ...sendForm, destinationEmail: e.target.value, destinationWalletId: '' })}
                   required
                   className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
                   placeholder="destinataire@email.com"
                 />
+                {loadingDestinationWallets && (
+                  <p className="mt-1 text-xs text-gray-500">Chargement des wallets...</p>
+                )}
               </div>
+
+              {destinationWallets.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Wallet de destination
+                  </label>
+                  <select
+                    value={sendForm.destinationWalletId}
+                    onChange={(e) => setSendForm({ ...sendForm, destinationWalletId: e.target.value })}
+                    required
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Sélectionner un wallet</option>
+                    {destinationWallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.currency})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {sendForm.destinationEmail && !loadingDestinationWallets && destinationWallets.length === 0 && sendForm.destinationEmail.includes('@') && (
+                <div className="p-3 bg-yellow-50 text-yellow-600 text-sm rounded-lg">
+                  Aucun wallet trouvé pour cet email
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -400,8 +479,8 @@ export default function TransactionsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={sendLoading}
-                  className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+                  disabled={sendLoading || !sendForm.destinationWalletId}
+                  className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sendLoading ? 'Envoi...' : 'Envoyer'}
                 </button>

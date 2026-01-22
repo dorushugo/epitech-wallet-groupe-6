@@ -6,8 +6,8 @@ import { z } from 'zod'
 const cashoutSchema = z.object({
   walletId: z.string().min(1, 'Wallet requis'),
   amount: z.number().positive('Montant doit être positif').min(10, 'Minimum 10€'),
-  method: z.enum(['bank_transfer', 'card'], {
-    message: 'Méthode doit être bank_transfer ou card',
+  method: z.enum(['bank_transfer'], {
+    message: 'Méthode doit être bank_transfer',
   }),
   destination: z.string().min(1, 'Destination requise'),
   description: z.string().max(255).optional(),
@@ -36,16 +36,14 @@ export async function POST(request: NextRequest) {
 
     const { walletId, amount, method, destination, description } = validation.data
 
-    // Valider l'IBAN si c'est un virement bancaire
-    if (method === 'bank_transfer') {
-      // Validation basique de l'IBAN (format: 2 lettres + jusqu'à 34 caractères alphanumériques)
-      const ibanRegex = /^[A-Z]{2}[0-9A-Z]{4,34}$/i
-      if (!ibanRegex.test(destination.replace(/\s/g, ''))) {
-        return NextResponse.json(
-          { success: false, error: 'IBAN invalide' },
-          { status: 400 }
-        )
-      }
+    // Valider l'IBAN
+    // Validation basique de l'IBAN (format: 2 lettres + jusqu'à 34 caractères alphanumériques)
+    const ibanRegex = /^[A-Z]{2}[0-9A-Z]{4,34}$/i
+    if (!ibanRegex.test(destination.replace(/\s/g, ''))) {
+      return NextResponse.json(
+        { success: false, error: 'IBAN invalide' },
+        { status: 400 }
+      )
     }
 
     // Traiter le cashout
