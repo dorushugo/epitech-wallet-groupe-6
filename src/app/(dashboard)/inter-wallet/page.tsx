@@ -175,7 +175,7 @@ export default function InterWalletPage() {
       <div className="bg-white rounded-xl shadow-sm p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Vos Wallet IDs</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Partagez ces IDs avec d'autres systèmes pour recevoir des transferts inter-wallets.
+          Partagez ces IDs avec d&apos;autres systèmes pour recevoir des transferts inter-wallets.
         </p>
         
         <div className="space-y-3">

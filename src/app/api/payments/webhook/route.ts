@@ -60,16 +60,20 @@ export async function POST(request: NextRequest) {
 
           if (!existingPaymentIntent && session.metadata) {
             // Créer le PaymentIntent en DB depuis les métadonnées de la session
+            // Le montant est dans la devise du wallet (pas en EUR)
+            const walletCurrency = session.metadata.currency || STRIPE_CURRENCY
             await prisma.paymentIntent.create({
               data: {
                 userId: session.metadata.userId,
                 walletId: session.metadata.walletId,
                 stripePaymentId: paymentIntentId,
-                amount: parseFloat(session.metadata.amount || '0'),
-                currency: STRIPE_CURRENCY,
+                amount: parseFloat(session.metadata.amount || '0'), // Montant dans la devise du wallet
+                currency: walletCurrency, // Devise du wallet
                 status: 'pending',
                 metadata: {
                   sessionId: session.id,
+                  exchangeRate: session.metadata.exchangeRate,
+                  amountInEUR: session.metadata.amountInEUR,
                 },
               },
             })

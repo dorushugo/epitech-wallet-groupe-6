@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { verifySignature, generateSignature, InterWalletValidateRequest } from '@/lib/interwallet'
+import { verifySignature, InterWalletValidateRequest } from '@/lib/interwallet'
 
 // POST /api/inter-wallet/validate - Validate/confirm a pending inter-wallet transfer
 export async function POST(request: NextRequest) {

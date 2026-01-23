@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 interface Wallet {
@@ -44,18 +44,21 @@ export default function TransactionsPage() {
   const [sendForm, setSendForm] = useState({
     sourceWalletId: '',
     destinationEmail: '',
+    destinationWalletId: '',
     amount: '',
     description: '',
   })
+  const [destinationWallets, setDestinationWallets] = useState<Wallet[]>([])
+  const [loadingDestinationWallets, setLoadingDestinationWallets] = useState(false)
+  const [convertedAmount, setConvertedAmount] = useState<number | null>(null)
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null)
+  const [loadingConversion, setLoadingConversion] = useState(false)
+  const [isSameUser, setIsSameUser] = useState(false) // Indique si le wallet de destination appartient au même utilisateur
   const [sendLoading, setSendLoading] = useState(false)
   const [sendError, setSendError] = useState('')
   const [sendSuccess, setSendSuccess] = useState('')
 
-  useEffect(() => {
-    fetchData()
-  }, [filters])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams()
       queryParams.set('limit', '50')
@@ -83,7 +86,64 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filters, sendForm.sourceWalletId])
+
+  useEffect(() => {
+    fetchData()
+  }, [filters, fetchData])
+
+  // Charger les wallets du destinataire quand l'email change
+  useEffect(() => {
+    const loadDestinationWallets = async () => {
+      if (!sendForm.destinationEmail || !sendForm.destinationEmail.includes('@')) {
+        setDestinationWallets([])
+        setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+        setIsSameUser(false)
+        return
+      }
+
+      setLoadingDestinationWallets(true)
+      try {
+        // Récupérer l'utilisateur courant pour vérifier si c'est le même
+        const [walletsRes, userRes] = await Promise.all([
+          fetch(`/api/wallets?email=${encodeURIComponent(sendForm.destinationEmail)}`),
+          fetch('/api/auth/me'),
+        ])
+        
+        const walletsData = await walletsRes.json()
+        const userData = await userRes.json()
+        
+        if (walletsData.success) {
+          setDestinationWallets(walletsData.wallets)
+          // Vérifier si c'est le même utilisateur
+          const isSame = userData.success && userData.user?.email === sendForm.destinationEmail
+          setIsSameUser(isSame)
+          
+          // Si un seul wallet, le sélectionner automatiquement
+          if (walletsData.wallets.length === 1) {
+            setSendForm((prev) => ({ ...prev, destinationWalletId: walletsData.wallets[0].id }))
+          } else {
+            setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+          }
+        } else {
+          setDestinationWallets([])
+          setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+          setIsSameUser(false)
+        }
+      } catch (error) {
+        console.error('Failed to load destination wallets:', error)
+        setDestinationWallets([])
+        setSendForm((prev) => ({ ...prev, destinationWalletId: '' }))
+        setIsSameUser(false)
+      } finally {
+        setLoadingDestinationWallets(false)
+      }
+    }
+
+    // Debounce pour éviter trop de requêtes
+    const timeoutId = setTimeout(loadDestinationWallets, 500)
+    return () => clearTimeout(timeoutId)
+  }, [sendForm.destinationEmail])
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,13 +152,39 @@ export default function TransactionsPage() {
     setSendLoading(true)
 
     try {
+      if (!sendForm.destinationWalletId) {
+        setSendError('Veuillez sélectionner un wallet de destination')
+        setSendLoading(false)
+        return
+      }
+
+      const sourceWallet = wallets.find((w) => w.id === sendForm.sourceWalletId)
+      const destinationWallet = destinationWallets.find((w) => w.id === sendForm.destinationWalletId)
+      
+      if (!sourceWallet || !destinationWallet) {
+        setSendError('Wallets non trouvés')
+        setSendLoading(false)
+        return
+      }
+
+      // Le montant saisi est dans la devise de destination
+      // Vérifier la conversion si nécessaire
+      if (sourceWallet.currency !== destinationWallet.currency) {
+        if (convertedAmount === null) {
+          setSendError('Erreur de conversion, veuillez réessayer')
+          setSendLoading(false)
+          return
+        }
+      }
+
       const res = await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceWalletId: sendForm.sourceWalletId,
-          destinationEmail: sendForm.destinationEmail,
-          amount: parseFloat(sendForm.amount),
+          destinationWalletId: sendForm.destinationWalletId,
+          amount: parseFloat(sendForm.amount), // Montant dans la devise de destination
+          destinationCurrency: destinationWallet.currency,
           description: sendForm.description,
         }),
       })
@@ -107,7 +193,8 @@ export default function TransactionsPage() {
 
       if (data.success) {
         setSendSuccess(`${sendForm.amount}€ envoyés avec succès!`)
-        setSendForm((prev) => ({ ...prev, destinationEmail: '', amount: '', description: '' }))
+        setSendForm((prev) => ({ ...prev, destinationEmail: '', destinationWalletId: '', amount: '', description: '' }))
+        setDestinationWallets([])
         fetchData()
         setTimeout(() => {
           setShowSendModal(false)
@@ -131,6 +218,66 @@ export default function TransactionsPage() {
     // Marge de plateforme: 1%
     return Math.round(amount * 0.01 * 100) / 100
   }
+
+  // Calculer le montant converti : le montant saisi est dans la devise de destination,
+  // on doit le convertir vers la devise source pour le débit
+  useEffect(() => {
+    const calculateConversion = async () => {
+      if (!sendForm.amount || !sendForm.sourceWalletId || !sendForm.destinationWalletId) {
+        setConvertedAmount(null)
+        setExchangeRate(null)
+        return
+      }
+
+      const sourceWallet = wallets.find((w) => w.id === sendForm.sourceWalletId)
+      const destinationWallet = destinationWallets.find((w) => w.id === sendForm.destinationWalletId)
+
+      if (!sourceWallet || !destinationWallet) {
+        setConvertedAmount(null)
+        setExchangeRate(null)
+        return
+      }
+
+      const amount = parseFloat(sendForm.amount)
+      if (isNaN(amount) || amount <= 0) {
+        setConvertedAmount(null)
+        setExchangeRate(null)
+        return
+      }
+
+      // Si les devises sont identiques, pas de conversion
+      if (sourceWallet.currency === destinationWallet.currency) {
+        setConvertedAmount(amount)
+        setExchangeRate(1)
+        return
+      }
+
+      // Le montant saisi est dans la devise de destination, on le convertit vers la devise source
+      setLoadingConversion(true)
+      try {
+        const response = await fetch(
+          `/api/currency/convert?amount=${amount}&from=${destinationWallet.currency}&to=${sourceWallet.currency}`
+        )
+        const data = await response.json()
+        if (data.success) {
+          setConvertedAmount(data.convertedAmount)
+          setExchangeRate(data.exchangeRate)
+        } else {
+          setConvertedAmount(null)
+          setExchangeRate(null)
+        }
+      } catch (error) {
+        console.error('Conversion error:', error)
+        setConvertedAmount(null)
+        setExchangeRate(null)
+      } finally {
+        setLoadingConversion(false)
+      }
+    }
+
+    const timeoutId = setTimeout(calculateConversion, 500)
+    return () => clearTimeout(timeoutId)
+  }, [sendForm.amount, sendForm.sourceWalletId, sendForm.destinationWalletId, wallets, destinationWallets])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -292,7 +439,7 @@ export default function TransactionsPage() {
       {showSendModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Envoyer de l'argent</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Envoyer de l&apos;argent</h2>
 
             <form onSubmit={handleSend} className="space-y-4">
               <div>
@@ -319,16 +466,50 @@ export default function TransactionsPage() {
                 <input
                   type="email"
                   value={sendForm.destinationEmail}
-                  onChange={(e) => setSendForm({ ...sendForm, destinationEmail: e.target.value })}
+                  onChange={(e) => setSendForm({ ...sendForm, destinationEmail: e.target.value, destinationWalletId: '' })}
                   required
                   className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
                   placeholder="destinataire@email.com"
                 />
+                {loadingDestinationWallets && (
+                  <p className="mt-1 text-xs text-gray-500">Chargement des wallets...</p>
+                )}
               </div>
+
+              {destinationWallets.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Wallet de destination
+                  </label>
+                  <select
+                    value={sendForm.destinationWalletId}
+                    onChange={(e) => setSendForm({ ...sendForm, destinationWalletId: e.target.value })}
+                    required
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Sélectionner un wallet</option>
+                    {destinationWallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.currency})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {sendForm.destinationEmail && !loadingDestinationWallets && destinationWallets.length === 0 && sendForm.destinationEmail.includes('@') && (
+                <div className="p-3 bg-yellow-50 text-yellow-600 text-sm rounded-lg">
+                  Aucun wallet trouvé pour cet email
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Montant (€)
+                  Montant à recevoir
+                  {(() => {
+                    const destinationWallet = destinationWallets.find((w) => w.id === sendForm.destinationWalletId)
+                    return destinationWallet ? ` (${destinationWallet.currency})` : ''
+                  })()}
                 </label>
                 <input
                   type="number"
@@ -337,9 +518,15 @@ export default function TransactionsPage() {
                   value={sendForm.amount}
                   onChange={(e) => setSendForm({ ...sendForm, amount: e.target.value })}
                   required
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  disabled={!sendForm.destinationWalletId}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   placeholder="0.00"
                 />
+                {!sendForm.destinationWalletId && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Sélectionnez d&apos;abord un wallet de destination
+                  </p>
+                )}
               </div>
 
               <div>
@@ -356,27 +543,76 @@ export default function TransactionsPage() {
               </div>
 
               {/* Résumé avec marge */}
-              {sendForm.amount && parseFloat(sendForm.amount) > 0 && (
-                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Montant envoyé</span>
-                    <span className="font-medium">{formatCurrency(parseFloat(sendForm.amount))}</span>
+              {sendForm.amount && parseFloat(sendForm.amount) > 0 && sendForm.destinationWalletId && (() => {
+                const sourceWallet = wallets.find((w) => w.id === sendForm.sourceWalletId)
+                const destinationWallet = destinationWallets.find((w) => w.id === sendForm.destinationWalletId)
+                const amount = parseFloat(sendForm.amount) // Montant dans la devise de destination
+                const needsConversion = sourceWallet && destinationWallet && sourceWallet.currency !== destinationWallet.currency
+                const amountToDebit = needsConversion && convertedAmount !== null ? convertedAmount : amount // Montant à débiter dans la devise source
+
+                return (
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Montant à recevoir</span>
+                      <span className="font-medium">
+                        {formatCurrency(amount, destinationWallet?.currency || 'EUR')}
+                      </span>
+                    </div>
+                    {needsConversion && (
+                      <>
+                        {loadingConversion ? (
+                          <div className="flex justify-between text-sm text-gray-500">
+                            <span>Conversion en cours...</span>
+                          </div>
+                        ) : convertedAmount !== null && exchangeRate !== null ? (
+                          <>
+                            <div className="flex justify-between text-sm text-blue-600">
+                              <span>Taux de change</span>
+                              <span className="font-medium">
+                                1 {destinationWallet?.currency} = {exchangeRate.toFixed(4)} {sourceWallet?.currency}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm text-blue-600">
+                              <span>Montant à débiter</span>
+                              <span className="font-medium">
+                                {formatCurrency(amountToDebit, sourceWallet?.currency || 'EUR')}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+                      </>
+                    )}
+                    {!isSameUser && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Frais de plateforme (1%)</span>
+                        <span className="font-medium">
+                          {formatCurrency(calculatePlatformFee(amountToDebit), sourceWallet?.currency || 'EUR')}
+                        </span>
+                      </div>
+                    )}
+                    {isSameUser && (
+                      <div className="flex justify-between text-sm text-green-600">
+                        <span>Transfert entre vos wallets</span>
+                        <span className="font-medium">Aucun frais</span>
+                      </div>
+                    )}
+                    <div className="border-t border-gray-200 pt-2 flex justify-between">
+                      <span className="font-semibold text-gray-900">Total débité</span>
+                      <span className="font-bold text-lg text-gray-900">
+                        {formatCurrency(
+                          isSameUser 
+                            ? amountToDebit 
+                            : amountToDebit + calculatePlatformFee(amountToDebit), 
+                          sourceWallet?.currency || 'EUR'
+                        )}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Le destinataire recevra {formatCurrency(amount, destinationWallet?.currency || 'EUR')}
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Frais de plateforme (1%)</span>
-                    <span className="font-medium">{formatCurrency(calculatePlatformFee(parseFloat(sendForm.amount)))}</span>
-                  </div>
-                  <div className="border-t border-gray-200 pt-2 flex justify-between">
-                    <span className="font-semibold text-gray-900">Total débité</span>
-                    <span className="font-bold text-lg text-gray-900">
-                      {formatCurrency(parseFloat(sendForm.amount) + calculatePlatformFee(parseFloat(sendForm.amount)))}
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    Le destinataire recevra {formatCurrency(parseFloat(sendForm.amount))}
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {sendError && (
                 <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg">
@@ -400,8 +636,8 @@ export default function TransactionsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={sendLoading}
-                  className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+                  disabled={sendLoading || !sendForm.destinationWalletId}
+                  className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sendLoading ? 'Envoi...' : 'Envoyer'}
                 </button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
 interface Wallet {
@@ -27,10 +27,56 @@ export default function DashboardPage() {
   const [wallets, setWallets] = useState<Wallet[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [totalBalanceInEUR, setTotalBalanceInEUR] = useState<number | null>(null)
+  const [loadingBalance, setLoadingBalance] = useState(false)
+
+  const calculateTotalBalance = useCallback(async () => {
+    setLoadingBalance(true)
+    try {
+      // Convertir tous les soldes en EUR
+      const conversions = await Promise.all(
+        wallets.map(async (wallet) => {
+          if (wallet.currency === 'EUR') {
+            return wallet.balance
+          }
+          try {
+            const response = await fetch(
+              `/api/currency/convert?amount=${wallet.balance}&from=${wallet.currency}&to=EUR`
+            )
+            const data = await response.json()
+            if (data.success) {
+              return data.convertedAmount
+            }
+            return 0
+          } catch (error) {
+            console.error(`Failed to convert ${wallet.currency} to EUR:`, error)
+            return 0
+          }
+        })
+      )
+      const total = conversions.reduce((sum, amount) => sum + amount, 0)
+      setTotalBalanceInEUR(total)
+    } catch (error) {
+      console.error('Failed to calculate total balance:', error)
+      // Fallback: additionner seulement les EUR
+      const total = wallets
+        .filter((w) => w.currency === 'EUR')
+        .reduce((sum, w) => sum + w.balance, 0)
+      setTotalBalanceInEUR(total)
+    } finally {
+      setLoadingBalance(false)
+    }
+  }, [wallets])
 
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    if (wallets.length > 0) {
+      calculateTotalBalance()
+    }
+  }, [wallets, calculateTotalBalance])
 
   const fetchData = async () => {
     try {
@@ -50,8 +96,6 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
-
-  const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0)
 
   const formatCurrency = (amount: number, currency = 'EUR') => {
     return amount.toLocaleString('fr-FR', { style: 'currency', currency })
@@ -97,8 +141,14 @@ export default function DashboardPage() {
 
       {/* Balance Card */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
-        <p className="text-blue-100 text-sm">Solde total</p>
-        <p className="text-4xl font-bold mt-1">{formatCurrency(totalBalance)}</p>
+        <p className="text-blue-100 text-sm">Solde total (en EUR)</p>
+        {loadingBalance ? (
+          <p className="text-4xl font-bold mt-1">...</p>
+        ) : (
+          <p className="text-4xl font-bold mt-1">
+            {totalBalanceInEUR !== null ? formatCurrency(totalBalanceInEUR, 'EUR') : '0,00 €'}
+          </p>
+        )}
         <div className="mt-4 flex gap-3 flex-wrap">
           {wallets.map((wallet) => (
             <div key={wallet.id} className="bg-white/10 rounded-lg px-3 py-2">

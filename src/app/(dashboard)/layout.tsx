@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { User, LogOut, ChevronDown } from 'lucide-react'
@@ -25,30 +25,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<User | null>(null)
   const [wallets, setWallets] = useState<Wallet[]>([])
   const [loading, setLoading] = useState(true)
+  const [totalBalanceInEUR, setTotalBalanceInEUR] = useState<number | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    fetchUser()
-  }, [])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setShowUserMenu(false)
-      }
-    }
-
-    if (showUserMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showUserMenu])
-
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const res = await fetch('/api/auth/me', {
         credentials: 'include', // Inclure les cookies dans la requête
@@ -80,7 +61,70 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } finally {
       setLoading(false)
     }
-  }
+  }, [router])
+
+  useEffect(() => {
+    fetchUser()
+  }, [fetchUser])
+
+  const calculateTotalBalance = useCallback(async () => {
+    try {
+      // Convertir tous les soldes en EUR
+      const conversions = await Promise.all(
+        wallets.map(async (wallet) => {
+          if (wallet.currency === 'EUR') {
+            return wallet.balance
+          }
+          try {
+            const response = await fetch(
+              `/api/currency/convert?amount=${wallet.balance}&from=${wallet.currency}&to=EUR`
+            )
+            const data = await response.json()
+            if (data.success) {
+              return data.convertedAmount
+            }
+            return 0
+          } catch (error) {
+            console.error(`Failed to convert ${wallet.currency} to EUR:`, error)
+            return 0
+          }
+        })
+      )
+      const total = conversions.reduce((sum, amount) => sum + amount, 0)
+      setTotalBalanceInEUR(total)
+    } catch (error) {
+      console.error('Failed to calculate total balance:', error)
+      // Fallback: additionner seulement les EUR
+      const total = wallets
+        .filter((w) => w.currency === 'EUR')
+        .reduce((sum, w) => sum + w.balance, 0)
+      setTotalBalanceInEUR(total)
+    }
+  }, [wallets])
+
+  useEffect(() => {
+    if (wallets.length > 0) {
+      calculateTotalBalance()
+    } else {
+      setTotalBalanceInEUR(0)
+    }
+  }, [wallets, calculateTotalBalance])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showUserMenu])
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', {
@@ -97,8 +141,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     )
   }
-
-  const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0)
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -147,7 +189,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-4">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">
-                  {totalBalance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                  {totalBalanceInEUR !== null
+                    ? totalBalanceInEUR.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+                    : '...'}
                 </p>
               </div>
               <div className="relative" ref={userMenuRef}>

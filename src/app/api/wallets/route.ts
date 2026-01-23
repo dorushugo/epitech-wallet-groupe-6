@@ -3,8 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/auth'
 import { z } from 'zod'
 
-// GET /api/wallets - Get all wallets for current user
-export async function GET() {
+// GET /api/wallets - Get all wallets for current user or for a user by email
+export async function GET(request: NextRequest) {
   try {
     const user = await getSession()
     if (!user) {
@@ -14,6 +14,41 @@ export async function GET() {
       )
     }
 
+    const { searchParams } = new URL(request.url)
+    const email = searchParams.get('email')
+
+    // Si un email est fourni, récupérer les wallets de cet utilisateur (pour les transferts)
+    if (email) {
+      const targetUser = await prisma.user.findUnique({
+        where: { email },
+        include: {
+          wallets: {
+            where: { isActive: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      })
+
+      if (!targetUser) {
+        return NextResponse.json(
+          { success: false, error: 'Utilisateur non trouvé' },
+          { status: 404 }
+        )
+      }
+
+      // Retourner les wallets sans le solde (pour la sécurité)
+      return NextResponse.json({
+        success: true,
+        wallets: targetUser.wallets.map((w) => ({
+          id: w.id,
+          name: w.name,
+          currency: w.currency,
+          createdAt: w.createdAt,
+        })),
+      })
+    }
+
+    // Sinon, retourner les wallets de l'utilisateur connecté
     const wallets = await prisma.wallet.findMany({
       where: {
         userId: user.id,
