@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, TransactionType, TransactionStatus } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -158,10 +158,10 @@ async function main() {
     const transactions = [
       // === DÉPÔTS INITIAUX ===
       {
-        type: 'DEPOSIT',
+        type: TransactionType.DEPOSIT,
         amount: 1500,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Dépôt initial par carte bancaire',
         userId: alice.id,
         destinationWalletId: alice.walletId,
@@ -169,10 +169,10 @@ async function main() {
         fraudScore: 0,
       },
       {
-        type: 'DEPOSIT',
+        type: TransactionType.DEPOSIT,
         amount: 3000,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Virement depuis compte courant',
         userId: demo.id,
         destinationWalletId: demo.walletId,
@@ -180,10 +180,10 @@ async function main() {
         fraudScore: 0,
       },
       {
-        type: 'DEPOSIT',
+        type: TransactionType.DEPOSIT,
         amount: 400,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Dépôt PayPal',
         userId: bob.id,
         destinationWalletId: bob.walletId,
@@ -194,10 +194,10 @@ async function main() {
       // === TRANSFERTS ENTRE UTILISATEURS ===
       // Alice -> Bob: 100€
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 100,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Remboursement restaurant',
         userId: alice.id,
         sourceWalletId: alice.walletId,
@@ -207,10 +207,10 @@ async function main() {
       },
       // Alice -> Demo: 200€
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 200,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Participation Airbnb vacances',
         userId: alice.id,
         sourceWalletId: alice.walletId,
@@ -220,10 +220,10 @@ async function main() {
       },
       // Demo -> Alice: 50€
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 50,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Remboursement courses',
         userId: demo.id,
         sourceWalletId: demo.walletId,
@@ -233,10 +233,10 @@ async function main() {
       },
       // Bob -> Demo: 50€
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 50,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Part cadeau anniversaire',
         userId: bob.id,
         sourceWalletId: bob.walletId,
@@ -246,10 +246,10 @@ async function main() {
       },
       // Demo -> Bob: 75€
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 75,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Remboursement concert',
         userId: demo.id,
         sourceWalletId: demo.walletId,
@@ -261,10 +261,10 @@ async function main() {
       // === RETRAITS ===
       // Alice: -250€
       {
-        type: 'WITHDRAWAL',
+        type: TransactionType.WITHDRAWAL,
         amount: 250,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Virement vers compte bancaire',
         userId: alice.id,
         sourceWalletId: alice.walletId,
@@ -273,10 +273,10 @@ async function main() {
       },
       // Bob: -25€
       {
-        type: 'WITHDRAWAL',
+        type: TransactionType.WITHDRAWAL,
         amount: 25,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Retrait DAB',
         userId: bob.id,
         sourceWalletId: bob.walletId,
@@ -285,10 +285,10 @@ async function main() {
       },
       // Demo: -625€
       {
-        type: 'WITHDRAWAL',
+        type: TransactionType.WITHDRAWAL,
         amount: 625,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Virement externe urgent',
         userId: demo.id,
         sourceWalletId: demo.walletId,
@@ -299,10 +299,10 @@ async function main() {
       // === TRANSACTIONS SUSPECTES (n'affectent pas le solde) ===
       // Transaction REVIEW - montant élevé suspect
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 2500,
         currency: 'EUR',
-        status: 'REVIEW',
+        status: TransactionStatus.REVIEW,
         description: 'Gros transfert en attente de vérification',
         userId: demo.id,
         sourceWalletId: demo.walletId,
@@ -312,10 +312,10 @@ async function main() {
       },
       // Transaction BLOCKED - tentative de fraude
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 8000,
         currency: 'EUR',
-        status: 'BLOCKED',
+        status: TransactionStatus.BLOCKED,
         description: 'Transfert bloqué - montant suspect',
         userId: bob.id,
         sourceWalletId: bob.walletId,
@@ -326,10 +326,10 @@ async function main() {
 
       // === TRANSACTIONS RÉCENTES ===
       {
-        type: 'TRANSFER',
+        type: TransactionType.TRANSFER,
         amount: 15,
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Café et croissants équipe',
         userId: alice.id,
         sourceWalletId: alice.walletId,
@@ -338,10 +338,10 @@ async function main() {
         fraudScore: 0,
       },
       {
-        type: 'DEPOSIT',
+        type: TransactionType.DEPOSIT,
         amount: 15, // Compense le transfert précédent pour garder le solde
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Petit rechargement',
         userId: alice.id,
         destinationWalletId: alice.walletId,
@@ -349,10 +349,10 @@ async function main() {
         fraudScore: 0,
       },
       {
-        type: 'WITHDRAWAL',
+        type: TransactionType.WITHDRAWAL,
         amount: 15, // Bob retire ce qu'il a reçu
         currency: 'EUR',
-        status: 'SUCCESS',
+        status: TransactionStatus.SUCCESS,
         description: 'Retrait rapide',
         userId: bob.id,
         sourceWalletId: bob.walletId,
