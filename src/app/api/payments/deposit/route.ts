@@ -97,9 +97,13 @@ export async function POST(request: NextRequest) {
     // Convertir le montant total en centimes pour Stripe
     const totalAmountInCents = Math.round(totalAmountInEUR * 100)
 
-    // Déterminer l'URL de base depuis les headers de la requête
+    // URL publique (Stripe Checkout success/cancel) : alignée sur la requête réelle (HTTP vs HTTPS)
     const host = request.headers.get('host') || 'localhost:3000'
-    const protocol = host.includes('localhost') ? 'http' : 'https'
+    const forwardedProto = request.headers.get('x-forwarded-proto')
+    const protocol =
+      forwardedProto?.split(',')[0].trim() ||
+      request.nextUrl.protocol.replace(':', '') ||
+      'http'
     const baseUrl = `${protocol}://${host}`
     const successUrl = `${baseUrl}/deposit/checkout?payment_intent={CHECKOUT_SESSION_ID}&redirect_status=succeeded`
     const cancelUrl = `${baseUrl}/deposit/checkout?redirect_status=canceled`

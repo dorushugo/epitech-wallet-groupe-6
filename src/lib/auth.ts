@@ -1,7 +1,17 @@
 import bcrypt from 'bcryptjs'
 import jwt, { SignOptions } from 'jsonwebtoken'
+import type { NextRequest } from 'next/server'
 import { prisma } from './prisma'
 import { cookies } from 'next/headers'
+
+/** Ne pas mettre Secure sur HTTP : le navigateur rejette le cookie sans HTTPS. */
+export function isHttpsRequest(request: NextRequest): boolean {
+  const forwarded = request.headers.get('x-forwarded-proto')
+  if (forwarded) {
+    return forwarded.split(',')[0].trim() === 'https'
+  }
+  return request.nextUrl.protocol === 'https:'
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret'
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as string

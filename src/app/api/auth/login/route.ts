@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { verifyPassword, generateToken } from '@/lib/auth'
+import { verifyPassword, generateToken, isHttpsRequest } from '@/lib/auth'
 import { z } from 'zod'
 
 const loginSchema = z.object({
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set('auth_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttpsRequest(request),
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60, // 7 days
